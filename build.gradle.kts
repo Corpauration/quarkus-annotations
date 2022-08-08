@@ -1,5 +1,6 @@
 plugins {
     kotlin("jvm") version "1.6.21"
+    id("maven-publish")
 }
 
 group = "fr.corpauration"
@@ -28,4 +29,47 @@ tasks.test {
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
     kotlinOptions.jvmTarget = JavaVersion.VERSION_11.toString()
     kotlinOptions.javaParameters = true
+}
+
+val sourcesJar by tasks.creating(Jar::class) {
+    archiveClassifier.set("sources")
+    from(sourceSets.getByName("main").allSource)
+}
+
+publishing {
+    repositories {
+        maven {
+            name = "GitHubPackages"
+            url = uri("https://maven.pkg.github.com/corpauration/quarkus-annotations")
+            credentials {
+                username = System.getenv("USERNAME")
+                password = System.getenv("GH_TOKEN")
+            }
+        }
+    }
+    publications {
+        create<MavenPublication>("maven") {
+            from(components["java"])
+        }
+
+        register("gprRelease", MavenPublication::class) {
+            from(components["java"])
+
+            artifact(sourcesJar)
+
+            pom {
+                packaging = "jar"
+                name.set("quarkus-annotations")
+                description.set("Add annotations to quarkus app")
+                url.set("https://github.com/Corpauration/quarkus-annotations")
+                scm {
+                    url.set("https://github.com/Corpauration/quarkus-annotations")
+                }
+                issueManagement {
+                    url.set("https://github.com/Corpauration/quarkus-annotations/issues")
+                }
+            }
+
+        }
+    }
 }
