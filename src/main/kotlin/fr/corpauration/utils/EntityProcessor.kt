@@ -239,7 +239,7 @@ class EntityProcessor(
                     fun $originalClass.save_$prop(client: PgPool): Uni<Void> {
                         return client.withTransaction{
                             val queries = ArrayList<Uni<RowSet<Row>>>()
-                            queries.add(it.preparedQuery("UPDATE ${'$'}{${originalClass.replace("Entity", "Repository")}.TABLE} SET $prop = $1 WHERE id = $2").execute(Tuple.of(if (this.$prop != null) this.$prop!!.id else null, this.id)))
+                            queries.add(it.preparedQuery("UPDATE ${'$'}{${originalClass.replace("Entity", "Repository")}.TABLE} SET \"$prop\" = $1 WHERE id = $2").execute(Tuple.of(if (this.$prop != null) this.$prop!!.id else null, this.id)))
                             Uni.combine().all().unis<RowSet<Row>>(queries).discardItems()
                         }
                     }
