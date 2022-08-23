@@ -1,6 +1,6 @@
 package fr.corpauration.utils
 
-import java.util.Random
+import java.util.*
 
 class ClassBuilder(val packageName: String, val className: String) {
     private val imports: ArrayList<String> = ArrayList()
@@ -81,21 +81,22 @@ class ClassBuilder(val packageName: String, val className: String) {
 
     /*
         This class was generated with ${
-            kotlin.run { 
-                var str = ""
-                val random = Random(System.currentTimeMillis())
-                for (i in 0..8) str += ((random.nextDouble() * ('\u23FF' - '\u0021')).toInt() + '\u0021'.code).toChar()
-                str
-            }
+        kotlin.run {
+            var str = ""
+            val random = Random(System.currentTimeMillis())
+            for (i in 0..8) str += ((random.nextDouble() * ('\u23FF' - '\u0021')).toInt() + '\u0021'.code).toChar()
+            str
         }
+    }
     */
     ${classAnnotations.joinToString("\n")}
-    class $className${if (!constructorProperties.isEmpty()) {
-        var str = "("
-        constructorProperties.forEach { propriety, type -> str += "var $propriety: $type," }
-        str += ")"
-        str
-    } else ""
+    class $className${
+        if (!constructorProperties.isEmpty()) {
+            var str = "("
+            constructorProperties.forEach { propriety, type -> str += "var $propriety: $type," }
+            str += ")"
+            str
+        } else ""
     } {
         ${fields.joinToString("\n        ")}
         

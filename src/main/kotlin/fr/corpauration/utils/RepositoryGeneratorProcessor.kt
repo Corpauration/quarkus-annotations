@@ -4,6 +4,9 @@ import com.google.devtools.ksp.processing.*
 import com.google.devtools.ksp.symbol.*
 import com.google.devtools.ksp.visitor.KSValidateVisitor
 import java.io.OutputStream
+import java.util.*
+import kotlin.collections.ArrayList
+import kotlin.collections.HashMap
 
 
 fun OutputStream.appendText(str: String) {
@@ -34,15 +37,17 @@ class RepositoryGeneratorProcessor(
     override fun process(resolver: Resolver): List<KSAnnotated> {
         val symbols = resolver.getSymbolsWithAnnotation("fr.corpauration.utils.RepositoryGenerator")
         logger.warn("RepositoryGeneratorProcessor is running")
-        symbols.forEach {
-            action: KSAnnotated -> logger.warn("annotation found with ${action::class}", action.parent)
+        symbols.forEach { action: KSAnnotated ->
+            logger.warn("annotation found with ${action::class}", action.parent)
         }
         val ret = symbols.filter { !it.validate2() }.toList()
         symbols
-            .filter { it is KSPropertyDeclaration/* && it.validate2() */}
-            .forEach { it.accept(RepositoryGeneratorVisitor(), it.annotations.find {
-                predicate: KSAnnotation -> predicate.shortName.asString() == "RepositoryGenerator"
-            }) }
+            .filter { it is KSPropertyDeclaration/* && it.validate2() */ }
+            .forEach {
+                it.accept(RepositoryGeneratorVisitor(), it.annotations.find { predicate: KSAnnotation ->
+                    predicate.shortName.asString() == "RepositoryGenerator"
+                })
+            }
         return ret
     }
 
@@ -54,14 +59,18 @@ class RepositoryGeneratorProcessor(
         override fun visitPropertyDeclaration(property: KSPropertyDeclaration, data: KSAnnotation?) {
             val parent = property.parentDeclaration as KSClassDeclaration
             val packageName = parent.containingFile!!.packageName.asString()
-            val className = property.simpleName.asString().capitalize()
-            val table = data?.arguments!!.find { predicate: KSValueArgument -> predicate.name!!.asString() == "table" }?.value
+            val className = property.simpleName.asString()
+                .replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
+            val table =
+                data?.arguments!!.find { predicate: KSValueArgument -> predicate.name!!.asString() == "table" }?.value
             val id = data.arguments.find { predicate: KSValueArgument -> predicate.name!!.asString() == "id" }?.value
-            val entity = data.arguments.find { predicate: KSValueArgument -> predicate.name!!.asString() == "entity" }?.value
+            val entity =
+                data.arguments.find { predicate: KSValueArgument -> predicate.name!!.asString() == "entity" }?.value
             val entityProperties = ((entity!! as KSType).declaration as KSClassDeclaration).getAllProperties()
             val dbFields = ArrayList<String>()
             entityProperties.forEach {
-                if (it.annotations.filter { it.shortName.asString() == "ManyToMany" || it.shortName.asString() == "Lazy" }.count() == 0)
+                if (it.annotations.filter { it.shortName.asString() == "ManyToMany" || it.shortName.asString() == "Lazy" }
+                        .count() == 0)
                     dbFields.add(it.simpleName.asString())
             }
             val lazyProprieties = ArrayList<String>()
@@ -77,10 +86,12 @@ class RepositoryGeneratorProcessor(
             entityProperties.forEach {
                 if (it.annotations.filter { it.shortName.asString() == "OneToOne" }.count() == 1) {
                     oneToOneProprieties.add(it.simpleName.asString())
-                    oneToOneProprietiesMap[it.simpleName.asString()] = "${it.type.resolve().declaration.packageName.asString()}.${it.type}"
+                    oneToOneProprietiesMap[it.simpleName.asString()] =
+                        "${it.type.resolve().declaration.packageName.asString()}.${it.type}"
                 }
             }
-            val file = codeGenerator.createNewFile(Dependencies(true, property.containingFile!!), packageName , className)
+            val file =
+                codeGenerator.createNewFile(Dependencies(true, property.containingFile!!), packageName, className)
             file.appendText(ClassBuilder(packageName, className)
                 .addImport("javax.enterprise.context.ApplicationScoped")
                 .addImport("javax.inject.Inject")
@@ -93,26 +104,39 @@ class RepositoryGeneratorProcessor(
                 .set("repository", className)
                 .addClassAnotation("@ApplicationScoped")
 //                .addConstructorProprieties("client", "PgPool")
-                .addCompanion("""
+                .addCompanion(
+                    """
                     companion object {
                         lateinit var INSTANCE: $className
                         val TABLE = "$table"
                     }
-                """.trimIndent())
-                .addInit("""
+                """.trimIndent()
+                )
+                .addInit(
+                    """
                     init {
                         $className.INSTANCE = this
                     }
-                """.trimIndent())
-                .addField("""
+                """.trimIndent()
+                )
+                .addField(
+                    """
                     @Inject
                     lateinit var client: PgPool
-                """.trimIndent())
+                """.trimIndent()
+                )
                 .add { input: ClassBuilder -> generateGetAll(input, dbFields) }
                 .add { input: ClassBuilder -> generateGetIds(input) }
                 .add { input: ClassBuilder -> generateFindById(input, dbFields) }
                 .add { input: ClassBuilder -> generateFindBy(input, dbFields) }
-                .add { input: ClassBuilder -> generateSave(input, lazyProprieties, oneToOneProprieties, oneToOneProprietiesMap) }
+                .add { input: ClassBuilder ->
+                    generateSave(
+                        input,
+                        lazyProprieties,
+                        oneToOneProprieties,
+                        oneToOneProprietiesMap
+                    )
+                }
                 .add { input: ClassBuilder -> generateUpdate(input, lazyProprieties) }
                 .add { input: ClassBuilder -> generateDelete(input) }
                 .add { input: ClassBuilder -> generateLoadLazy(input, lazyProprieties, lazyProprietiesMap) }
@@ -135,14 +159,20 @@ class RepositoryGeneratorProcessor(
                 .addImport("io.vertx.mutiny.sqlclient.Row")
                 .addImport("java.util.function.Function")
                 .addImport("org.reactivestreams.Publisher")
-                .addFunction("""
+                .addFunction(
+                    """
                 fun getAll(): Multi<${builder.get("entity")}> {
-                    val rowSet: Uni<RowSet<Row>> = client.query("SELECT ${fields.joinToString(", ")} FROM ${builder.get("table")}").execute()
+                    val rowSet: Uni<RowSet<Row>> = client.query("SELECT ${fields.joinToString(", ")} FROM ${
+                        builder.get(
+                            "table"
+                        )
+                    }").execute()
                     return rowSet.onItem().transformToMulti(Function<RowSet<Row>, Publisher<*>> { set: RowSet<Row> ->
                         Multi.createFrom().iterable(set)
                     }).flatMap { ${builder.get("entity")}.Companion.from(it as Row, client)!!.toMulti() }
                 }
-                """.trimIndent())
+                """.trimIndent()
+                )
         }
 
         fun generateGetIds(builder: ClassBuilder): ClassBuilder {
@@ -153,7 +183,8 @@ class RepositoryGeneratorProcessor(
                 .addImport("io.vertx.mutiny.sqlclient.Row")
                 .addImport("java.util.function.Function")
                 .addImport("org.reactivestreams.Publisher")
-                .addFunction("""
+                .addFunction(
+                    """
                 fun getIds(): Multi<${builder.get("id")}> {
                     val rowSet: Uni<RowSet<Row>> = client.query("SELECT id FROM ${builder.get("table")}").execute()
                     return rowSet.onItem().transformToMulti(Function<RowSet<Row>, Publisher<*>> { set: RowSet<Row> ->
@@ -162,26 +193,29 @@ class RepositoryGeneratorProcessor(
                         (row as Row).getValue("id") as ${builder.get("id")}
                     })
                 }
-                """.trimIndent())
+                """.trimIndent()
+                )
         }
 
         fun generateFindById(builder: ClassBuilder, dbFields: ArrayList<String>): ClassBuilder {
             val fields = dbFields.toMutableList()
             fields.replaceAll { "\\\"$it\\\"" }
             return builder.addImport("io.smallrye.mutiny.Multi")
-                    .addImport("io.smallrye.mutiny.Uni")
-                    .addImport("io.vertx.mutiny.sqlclient.RowSet")
-                    .addImport("io.vertx.mutiny.sqlclient.RowIterator")
-                    .addImport("io.vertx.mutiny.sqlclient.Row")
-                    .addImport("io.vertx.mutiny.sqlclient.Tuple")
-                    .addImport("java.util.function.Function")
-                    .addImport("org.reactivestreams.Publisher")
-                    .addFunction("""
+                .addImport("io.smallrye.mutiny.Uni")
+                .addImport("io.vertx.mutiny.sqlclient.RowSet")
+                .addImport("io.vertx.mutiny.sqlclient.RowIterator")
+                .addImport("io.vertx.mutiny.sqlclient.Row")
+                .addImport("io.vertx.mutiny.sqlclient.Tuple")
+                .addImport("java.util.function.Function")
+                .addImport("org.reactivestreams.Publisher")
+                .addFunction(
+                    """
                     fun findById(id: ${builder.get("id")}): Uni<${builder.get("entity")}> {
                         return client.preparedQuery("SELECT ${fields.joinToString(", ")} FROM ${builder.get("table")} WHERE id = ${'$'}1").execute(Tuple.of(id)).onItem().transform(RowSet<Row>::iterator)
                         .flatMap{ if (it.hasNext()) ${builder.get("entity")}.from(it.next() as Row, client) else null }
                     }    
-                    """.trimIndent())
+                    """.trimIndent()
+                )
         }
 
         fun generateFindBy(builder: ClassBuilder, dbFields: ArrayList<String>): ClassBuilder {
@@ -194,15 +228,21 @@ class RepositoryGeneratorProcessor(
                 .addImport("io.vertx.mutiny.sqlclient.Row")
                 .addImport("java.util.function.Function")
                 .addImport("org.reactivestreams.Publisher")
-                .addFunction("""
+                .addFunction(
+                    """
                     fun findBy(value: Any?, field: String): Multi<${builder.get("entity")}> {
-                        val rowSet: Uni<RowSet<Row>> = if (value != null) client.preparedQuery("SELECT * FROM ${builder.get("table")} WHERE ${"\$field"} = $1").execute(Tuple.of(value))
+                        val rowSet: Uni<RowSet<Row>> = if (value != null) client.preparedQuery("SELECT * FROM ${
+                        builder.get(
+                            "table"
+                        )
+                    } WHERE ${"\$field"} = $1").execute(Tuple.of(value))
                             else client.query("SELECT ${fields.joinToString(", ")} FROM ${builder.get("table")} WHERE ${"\$field"} IS NULL").execute()
                         return rowSet.onItem().transformToMulti(Function<RowSet<Row>, Publisher<*>> { set: RowSet<Row> ->
                             Multi.createFrom().iterable(set)
                         }).flatMap { ${builder.get("entity")}.Companion.from(it as Row, client)!!.toMulti() }
                     }    
-                    """.trimIndent())
+                    """.trimIndent()
+                )
         }
 
         fun generateSave(
@@ -211,13 +251,12 @@ class RepositoryGeneratorProcessor(
             oneToOneProprieties: ArrayList<String>,
             oneToOneProprietiesMap: HashMap<String, String>
         ): ClassBuilder {
-            codeGenerator.generatedFile.forEach{ logger.warn(it.nameWithoutExtension) }
+            codeGenerator.generatedFile.forEach { logger.warn(it.nameWithoutExtension) }
             val line = codeGenerator.generatedFile
                 .filter { it.nameWithoutExtension == "${builder.get("entity")}Generated" }
                 .first()
                 .bufferedReader()
-                .useLines {
-                        lines: Sequence<String> ->
+                .useLines { lines: Sequence<String> ->
                     lines
                         .take(1)
                         .toList()
@@ -240,32 +279,34 @@ class RepositoryGeneratorProcessor(
                 .addFunction("""
                     fun save(obj: ${builder.get("entity")}): Uni<Void> {
                         ${
-                            if (lazyProprieties.size > 0) """
+                    if (lazyProprieties.size > 0) """
                                 if (${
-                                        kotlin.run {
-                                            val ll = (lazyProprieties.toMutableList())
-                                            ll.replaceAll{ "obj.$it == null" }
-                                            ll.joinToString(" || ")
-                                        }
-                                    }) throw Exception("Some lazy properties were not initialized")
-                            """.trimIndent() else ""
+                        kotlin.run {
+                            val ll = (lazyProprieties.toMutableList())
+                            ll.replaceAll { "obj.$it == null" }
+                            ll.joinToString(" || ")
                         }
+                    }) throw Exception("Some lazy properties were not initialized")
+                            """.trimIndent() else ""
+                }
                         return Uni.combine().all().unis<Void>(
-                            client.preparedQuery("INSERT INTO ${builder.get("table")} (${l.plus(oneToOneProprieties).map { "\\\"$it\\\"" }.joinToString(", ")}) VALUES (${
-                                kotlin.run {
-                                    val ll = l.plus(oneToOneProprieties).toMutableList()
-                                    ll.replaceAll{ "$${ll.indexOf(it) + 1}" }
-                                    ll.joinToString(", ")
-                                }
-                            })").execute(Tuple.from(listOf(${
-                                kotlin.run {
-                                    val one = oneToOneProprieties.toMutableList()
-                                    one.replaceAll{ "$it?.id" }
-                                    val ll = l.plus(one).toMutableList()
-                                    ll.replaceAll{ "obj.$it" }
-                                    ll.joinToString(", ")
-                                }
-                            }))),
+                            client.preparedQuery("INSERT INTO ${builder.get("table")} (${
+                    l.plus(oneToOneProprieties).map { "\\\"$it\\\"" }.joinToString(", ")
+                }) VALUES (${
+                    kotlin.run {
+                        val ll = l.plus(oneToOneProprieties).toMutableList()
+                        ll.replaceAll { "$${ll.indexOf(it) + 1}" }
+                        ll.joinToString(", ")
+                    }
+                })").execute(Tuple.from(listOf(${
+                    kotlin.run {
+                        val one = oneToOneProprieties.toMutableList()
+                        one.replaceAll { "$it?.id" }
+                        val ll = l.plus(one).toMutableList()
+                        ll.replaceAll { "obj.$it" }
+                        ll.joinToString(", ")
+                    }
+                }))),
                             obj.save(client)
                         ).discardItems()
                     }    
@@ -276,13 +317,12 @@ class RepositoryGeneratorProcessor(
             builder: ClassBuilder,
             lazyProprieties: ArrayList<String>
         ): ClassBuilder {
-            codeGenerator.generatedFile.forEach{ logger.warn(it.nameWithoutExtension) }
+            codeGenerator.generatedFile.forEach { logger.warn(it.nameWithoutExtension) }
             val line = codeGenerator.generatedFile
                 .filter { it.nameWithoutExtension == "${builder.get("entity")}Generated" }
                 .first()
                 .bufferedReader()
-                .useLines {
-                        lines: Sequence<String> ->
+                .useLines { lines: Sequence<String> ->
                     lines
                         .take(1)
                         .toList()
@@ -295,7 +335,7 @@ class RepositoryGeneratorProcessor(
                 .filter { it != "id" }
                 .plus(lazyProprieties)
             val ll = (l.toMutableList())
-            ll.replaceAll{ "\\\"$it\\\" = $${ll.indexOf(it) + 1}" }
+            ll.replaceAll { "\\\"$it\\\" = $${ll.indexOf(it) + 1}" }
             return builder
                 .addImport("io.smallrye.mutiny.Multi")
                 .addImport("io.smallrye.mutiny.Uni")
@@ -306,25 +346,25 @@ class RepositoryGeneratorProcessor(
                 .addFunction("""
                     fun update(obj: ${builder.get("entity")}): Uni<Void> {
                         ${
-                            if (lazyProprieties.size > 0) """
+                    if (lazyProprieties.size > 0) """
                                         if (${
-                                kotlin.run {
-                                    val ll = (lazyProprieties.toMutableList())
-                                    ll.replaceAll{ "obj.$it == null" }
-                                    ll.joinToString(" || ")
-                                }
-                            }) throw Exception("Some lazy properties were not initialized")
-                                    """.trimIndent() else ""
+                        kotlin.run {
+                            val ll = (lazyProprieties.toMutableList())
+                            ll.replaceAll { "obj.$it == null" }
+                            ll.joinToString(" || ")
                         }
+                    }) throw Exception("Some lazy properties were not initialized")
+                                    """.trimIndent() else ""
+                }
                         return Uni.combine().all().unis<Void>(
                             client.preparedQuery("UPDATE ${builder.get("table")} SET ${ll.joinToString(", ")} WHERE id = $${l.size + 1}").execute(Tuple.from(listOf(${
-                                kotlin.run {
-                                    val lll = l.toMutableList()
-                                    lll.replaceAll{ "obj.$it" }
-                                    lll.add("obj.id")
-                                    lll.joinToString(", ")
-                                }
-                            }))),
+                    kotlin.run {
+                        val lll = l.toMutableList()
+                        lll.replaceAll { "obj.$it" }
+                        lll.add("obj.id")
+                        lll.joinToString(", ")
+                    }
+                }))),
                             obj.save(client)
                         ).discardItems()
                     }    
@@ -339,14 +379,16 @@ class RepositoryGeneratorProcessor(
                 .addImport("io.vertx.mutiny.sqlclient.Row")
                 .addImport("java.util.function.Function")
                 .addImport("org.reactivestreams.Publisher")
-                .addFunction("""
+                .addFunction(
+                    """
                     fun delete(obj: ${builder.get("entity")}): Uni<Void> {
                         return Uni.combine().all().unis<Void>(
                             obj.delete(client),
                             client.preparedQuery("DELETE FROM ${builder.get("table")} WHERE id = $1").execute(Tuple.of(obj.id))
                         ).discardItems()
                     }    
-                    """.trimIndent())
+                    """.trimIndent()
+                )
         }
 
         private fun generateLoadLazy(
@@ -358,25 +400,31 @@ class RepositoryGeneratorProcessor(
             else builder
                 .addExtension("""
                     fun ${builder.get("entity")}.loadLazy(): Uni<${builder.get("entity")}> {
-                        return Uni.combine().all().unis<${builder.get("entity")}>(${kotlin.run { 
-                            val l = lazyProprieties.toMutableList()
-                            l.replaceAll { 
-                                """
-                                    ${builder.get("repository")}.INSTANCE.client.preparedQuery("SELECT \"$it\" FROM ${builder.get("table")} WHERE id = $1").execute(Tuple.of(this.id)).onItem().transform(RowSet<Row>::iterator)
+                        return Uni.combine().all().unis<${builder.get("entity")}>(${
+                    kotlin.run {
+                        val l = lazyProprieties.toMutableList()
+                        l.replaceAll {
+                            """
+                                    ${builder.get("repository")}.INSTANCE.client.preparedQuery("SELECT \"$it\" FROM ${
+                                builder.get(
+                                    "table"
+                                )
+                            } WHERE id = $1").execute(Tuple.of(this.id)).onItem().transform(RowSet<Row>::iterator)
                                         .onItem().transform { if (it.hasNext()) {this.$it = (it.next() as Row).getValue("$it") as ${lazyProprietiesMap[it]}; this} else null }
                                 """.trimIndent()
-                            }
-                            l.joinToString(", ")
-                        }}).combinedWith {
+                        }
+                        l.joinToString(", ")
+                    }
+                }).combinedWith {
                             ${
-                                kotlin.run { 
-                                    var str = ""
-                                    lazyProprieties.forEachIndexed { index, prop -> 
-                                        str += "(it[0] as ${builder.get("entity")}).$prop = (it[$index] as ${builder.get("entity")}).$prop\n"
-                                    }
-                                    str
-                                }
-                            }
+                    kotlin.run {
+                        var str = ""
+                        lazyProprieties.forEachIndexed { index, prop ->
+                            str += "(it[0] as ${builder.get("entity")}).$prop = (it[$index] as ${builder.get("entity")}).$prop\n"
+                        }
+                        str
+                    }
+                }
                             return@combinedWith it[0] as ${builder.get("entity")}
                         }
                     }

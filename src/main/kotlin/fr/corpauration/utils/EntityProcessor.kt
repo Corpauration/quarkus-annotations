@@ -15,15 +15,17 @@ class EntityProcessor(
     override fun process(resolver: Resolver): List<KSAnnotated> {
         val symbols = resolver.getSymbolsWithAnnotation("fr.corpauration.utils.Entity")
         logger.warn("EntityProcessor is running")
-        symbols.forEach {
-                action: KSAnnotated -> logger.warn("annotation found with ${action::class}", action.parent)
+        symbols.forEach { action: KSAnnotated ->
+            logger.warn("annotation found with ${action::class}", action.parent)
         }
         val ret = symbols.filter { !it.validate() }.toList()
         symbols
             .filter { it is KSClassDeclaration && it.validate() }
-            .forEach { it.accept(EntityVisitor(), it.annotations.find {
-                    predicate: KSAnnotation -> predicate.shortName.asString() == "Entity"
-            }) }
+            .forEach {
+                it.accept(EntityVisitor(), it.annotations.find { predicate: KSAnnotation ->
+                    predicate.shortName.asString() == "Entity"
+                })
+            }
         return ret
     }
 
@@ -50,28 +52,62 @@ class EntityProcessor(
                     m["type"] = it.type.toString()
                     m["import"] =
                         it.type.resolve().declaration.packageName.asString()
-                    m["repository"] = if (m["type"]!!.contains("Entity")) m["type"]!!.replace("Entity", "Repository") else {logger.error("@OneToOne is not on an entity but on ${m["type"]}", classDeclaration); ""}
-                    m["id"] = it.annotations.find { it.shortName.asString() == "OneToOne" }!!.arguments.find { it.name!!.asString() == "id" }?.value.toString()
+                    m["repository"] =
+                        if (m["type"]!!.contains("Entity")) m["type"]!!.replace("Entity", "Repository") else {
+                            logger.error("@OneToOne is not on an entity but on ${m["type"]}", classDeclaration); ""
+                        }
+                    m["id"] =
+                        it.annotations.find { it.shortName.asString() == "OneToOne" }!!.arguments.find { it.name!!.asString() == "id" }?.value.toString()
                     oneToOneMeta[it.simpleName.asString()] = m
                 } else if (it.annotations.find { it.shortName.asString() == "Lazy" } != null) {
 //                    propertiesMap.put(it.simpleName.asString(), it.type.toString())
                 } else {
-                    propertiesMap.put(it.simpleName.asString(), it.type.toString() + if (it.type.resolve().isMarkedNullable) "?" else "")
+                    propertiesMap.put(
+                        it.simpleName.asString(),
+                        it.type.toString() + if (it.type.resolve().isMarkedNullable) "?" else ""
+                    )
                 }
 
                 if (it.type.resolve().declaration.packageName.asString() != "kotlin")
                     toBeImported.add("${it.type.resolve().declaration.packageName.asString()}.${it.type}")
             }
-            val file = codeGenerator.createNewFile(Dependencies(true, classDeclaration.containingFile!!), packageName , className)
-            file.appendText("""
+            val file = codeGenerator.createNewFile(
+                Dependencies(true, classDeclaration.containingFile!!),
+                packageName,
+                className
+            )
+            file.appendText(
+                """
                 // [${propertiesMap.keys.joinToString(",")}]
                 
-            """.trimIndent())
+            """.trimIndent()
+            )
             file.appendText(ClassBuilder(packageName, className)
                 .addImport("io.vertx.mutiny.sqlclient.Row")
-                .add { input: ClassBuilder -> generateExtensionManyToMany(input, classDeclaration.simpleName.asString(), manyToManyMeta) }
-                .add { input: ClassBuilder -> generateExtensionOneToOne(input, classDeclaration.simpleName.asString(), oneToOneMeta) }
-                .add { input: ClassBuilder -> generateExtension(input, propertiesMap, classDeclaration.simpleName.asString(), toBeImported, manyToManyMeta, oneToOneMeta) }
+                .add { input: ClassBuilder ->
+                    generateExtensionManyToMany(
+                        input,
+                        classDeclaration.simpleName.asString(),
+                        manyToManyMeta
+                    )
+                }
+                .add { input: ClassBuilder ->
+                    generateExtensionOneToOne(
+                        input,
+                        classDeclaration.simpleName.asString(),
+                        oneToOneMeta
+                    )
+                }
+                .add { input: ClassBuilder ->
+                    generateExtension(
+                        input,
+                        propertiesMap,
+                        classDeclaration.simpleName.asString(),
+                        toBeImported,
+                        manyToManyMeta,
+                        oneToOneMeta
+                    )
+                }
                 .build())
 
             file.close()
@@ -107,31 +143,31 @@ class EntityProcessor(
                     fun $originalClass.Companion.from(row: Row, client: PgPool): Uni<$originalClass> {
                         val o = $originalClass($str)
                         ${
-                            kotlin.run {
-                                var str2 = ""
-                                oneToOneMeta.forEach { key, metadata ->
-                                    str2 += "val $key = if(row.getValue(\"$key\") != null) ${metadata["repository"]}.INSTANCE.findById(row.getValue(\"$key\") as ${metadata["id"]}).onItem().transform { o.$key = it as ${metadata["type"]}; o } else Uni.createFrom().item(o)\n"
-                                }
-                                str2
-                            }
+                    kotlin.run {
+                        var str2 = ""
+                        oneToOneMeta.forEach { key, metadata ->
+                            str2 += "val $key = if(row.getValue(\"$key\") != null) ${metadata["repository"]}.INSTANCE.findById(row.getValue(\"$key\") as ${metadata["id"]}).onItem().transform { o.$key = it as ${metadata["type"]}; o } else Uni.createFrom().item(o)\n"
                         }
+                        str2
+                    }
+                }
                         return Uni.combine().all().unis<$originalClass>(Uni.createFrom().item(o)${
-                            kotlin.run {
-                                var str = ""
-                                oneToOneMeta.keys.forEachIndexed { i, it -> str += ", $it" }
-                                manyToManyMeta.keys.forEachIndexed { i, it -> str += ", o.load_$it(client)" }
-                                str
-                            }
-                        }).combinedWith {
+                    kotlin.run {
+                        var str = ""
+                        oneToOneMeta.keys.forEachIndexed { i, it -> str += ", $it" }
+                        manyToManyMeta.keys.forEachIndexed { i, it -> str += ", o.load_$it(client)" }
+                        str
+                    }
+                }).combinedWith {
                             ${
-                                kotlin.run {
-                                    var str = ""
-                                    var pad = oneToOneMeta.keys.size - 1
-                                    oneToOneMeta.keys.forEachIndexed { i, it -> str += "(it[0] as $originalClass).$it = (it[${i + 1}] as $originalClass).$it\n" }
-                                    manyToManyMeta.keys.forEachIndexed { i, it -> str += "(it[0] as $originalClass).$it = (it[${i + 1 + pad}] as $originalClass).$it\n" }
-                                    str
-                                }
-                            }
+                    kotlin.run {
+                        var str = ""
+                        var pad = oneToOneMeta.keys.size - 1
+                        oneToOneMeta.keys.forEachIndexed { i, it -> str += "(it[0] as $originalClass).$it = (it[${i + 1}] as $originalClass).$it\n" }
+                        manyToManyMeta.keys.forEachIndexed { i, it -> str += "(it[0] as $originalClass).$it = (it[${i + 1 + pad}] as $originalClass).$it\n" }
+                        str
+                    }
+                }
                             return@combinedWith it[0] as $originalClass
                         }
                     }
@@ -139,13 +175,13 @@ class EntityProcessor(
                 .addExtension("""
                     fun $originalClass.save(client: PgPool): Uni<Void> {
                         return Uni.combine().all().unis<Void>(Uni.createFrom().item<Int>(0) ${
-                            kotlin.run {
-                                var str = ""
-                                manyToManyMeta.keys.forEachIndexed { i, it -> str += ", this.save_$it(client)" }
-                                oneToOneMeta.keys.forEachIndexed { i, it -> str += ", this.save_$it(client)" }
-                                str
-                            }
-                        }).discardItems()
+                    kotlin.run {
+                        var str = ""
+                        manyToManyMeta.keys.forEachIndexed { i, it -> str += ", this.save_$it(client)" }
+                        oneToOneMeta.keys.forEachIndexed { i, it -> str += ", this.save_$it(client)" }
+                        str
+                    }
+                }).discardItems()
                     }
                 """.trimIndent())
                 .addExtension("""
@@ -181,15 +217,21 @@ class EntityProcessor(
                     .addImport("${metadata["import"]!!}.${metadata["type"]}")
                     .addImport("${metadata["import"]!!}.from")
                     .addExtension(
-                    """
+                        """
                     fun $originalClass.load_$prop(client: PgPool): Uni<$originalClass> {
-                        val rowSet: Uni<RowSet<Row>> = client.preparedQuery("SELECT o.* FROM ${metadata["table"]!!.split("_")[1]} AS o JOIN ${metadata["table"]} AS oo ON oo.ref = o.id WHERE oo.id = $1").execute(Tuple.of(id))
+                        val rowSet: Uni<RowSet<Row>> = client.preparedQuery("SELECT o.* FROM ${
+                            metadata["table"]!!.split(
+                                "_"
+                            )[1]
+                        } AS o JOIN ${metadata["table"]} AS oo ON oo.ref = o.id WHERE oo.id = $1").execute(Tuple.of(id))
                         return rowSet.onItem().transformToMulti(Function<RowSet<Row>, Publisher<*>> { set: RowSet<Row> ->
                             Multi.createFrom().iterable(set)
                         }).flatMap { ${metadata["type"]}.from(it as Row, client).toMulti() }.collect().asList().onItem().transform { this.$prop = it.filterNotNull(); this }
                     }
-                """.trimIndent())
-                    .addExtension("""
+                """.trimIndent()
+                    )
+                    .addExtension(
+                        """
                     fun $originalClass.save_$prop(client: PgPool): Uni<Void> {
                         return client.withTransaction{
                             val queries = ArrayList<Uni<RowSet<Row>>>()
@@ -198,8 +240,10 @@ class EntityProcessor(
                             Uni.combine().all().unis<RowSet<Row>>(queries).discardItems()
                         }
                     }
-                    """.trimIndent())
-                    .addExtension("""
+                    """.trimIndent()
+                    )
+                    .addExtension(
+                        """
                     fun $originalClass.delete_$prop(client: PgPool): Uni<Void> {
                         return client.withTransaction{
                             val queries = ArrayList<Uni<RowSet<Row>>>()
@@ -207,7 +251,8 @@ class EntityProcessor(
                             Uni.combine().all().unis<RowSet<Row>>(queries).discardItems()
                         }
                     }
-                    """.trimIndent())
+                    """.trimIndent()
+                    )
             }
 
 
@@ -235,15 +280,22 @@ class EntityProcessor(
                     .addImport("${metadata["import"]!!}.${metadata["type"]}")
                     .addImport("${metadata["import"]!!}.${metadata["repository"]}")
                     .addImport("${metadata["import"]!!}.from")
-                    .addExtension("""
+                    .addExtension(
+                        """
                     fun $originalClass.save_$prop(client: PgPool): Uni<Void> {
                         return client.withTransaction{
                             val queries = ArrayList<Uni<RowSet<Row>>>()
-                            queries.add(it.preparedQuery("UPDATE ${'$'}{${originalClass.replace("Entity", "Repository")}.TABLE} SET \"$prop\" = $1 WHERE id = $2").execute(Tuple.of(if (this.$prop != null) this.$prop!!.id else null, this.id)))
+                            queries.add(it.preparedQuery("UPDATE ${'$'}{${
+                            originalClass.replace(
+                                "Entity",
+                                "Repository"
+                            )
+                        }.TABLE} SET \"$prop\" = $1 WHERE id = $2").execute(Tuple.of(if (this.$prop != null) this.$prop!!.id else null, this.id)))
                             Uni.combine().all().unis<RowSet<Row>>(queries).discardItems()
                         }
                     }
-                    """.trimIndent())
+                    """.trimIndent()
+                    )
             }
 
 
