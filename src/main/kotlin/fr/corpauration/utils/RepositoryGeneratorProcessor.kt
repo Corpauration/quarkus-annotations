@@ -72,6 +72,14 @@ class RepositoryGeneratorProcessor(
                     lazyProprietiesMap[it.simpleName.asString()] = it.type.toString()
                 }
             }
+            val oneToOneProprieties = ArrayList<String>()
+            val oneToOneProprietiesMap = HashMap<String, String>()
+            entityProperties.forEach {
+                if (it.annotations.filter { it.shortName.asString() == "OneToOne" }.count() == 1) {
+                    oneToOneProprieties.add(it.simpleName.asString())
+                    oneToOneProprietiesMap[it.simpleName.asString()] = "${it.type.resolve().declaration.packageName.asString()}.${it.type}"
+                }
+            }
             val file = codeGenerator.createNewFile(Dependencies(true, property.containingFile!!), packageName , className)
             file.appendText(ClassBuilder(packageName, className)
                 .addImport("javax.enterprise.context.ApplicationScoped")
@@ -104,7 +112,7 @@ class RepositoryGeneratorProcessor(
                 .add { input: ClassBuilder -> generateGetIds(input) }
                 .add { input: ClassBuilder -> generateFindById(input, dbFields) }
                 .add { input: ClassBuilder -> generateFindBy(input, dbFields) }
-                .add { input: ClassBuilder -> generateSave(input, lazyProprieties) }
+                .add { input: ClassBuilder -> generateSave(input, lazyProprieties, oneToOneProprieties, oneToOneProprietiesMap) }
                 .add { input: ClassBuilder -> generateUpdate(input, lazyProprieties) }
                 .add { input: ClassBuilder -> generateDelete(input) }
                 .add { input: ClassBuilder -> generateLoadLazy(input, lazyProprieties, lazyProprietiesMap) }
@@ -197,7 +205,12 @@ class RepositoryGeneratorProcessor(
                     """.trimIndent())
         }
 
-        fun generateSave(builder: ClassBuilder, lazyProprieties: ArrayList<String>): ClassBuilder {
+        fun generateSave(
+            builder: ClassBuilder,
+            lazyProprieties: ArrayList<String>,
+            oneToOneProprieties: ArrayList<String>,
+            oneToOneProprietiesMap: HashMap<String, String>
+        ): ClassBuilder {
             codeGenerator.generatedFile.forEach{ logger.warn(it.nameWithoutExtension) }
             val line = codeGenerator.generatedFile
                 .filter { it.nameWithoutExtension == "${builder.get("entity")}Generated" }
@@ -210,7 +223,8 @@ class RepositoryGeneratorProcessor(
                         .toList()
                         .first()
                 }
-            val l = Regex("\\[(.*)\\]").find(line)?.groupValues!![1].split(",").toTypedArray()
+            var l = Regex("\\[(.*)\\]").find(line)?.groupValues!![1].split(",").toTypedArray()
+            l = l.plus(lazyProprieties)
             return builder
                 .addImport("io.smallrye.mutiny.Multi")
                 .addImport("io.smallrye.mutiny.Uni")
@@ -218,6 +232,11 @@ class RepositoryGeneratorProcessor(
                 .addImport("io.vertx.mutiny.sqlclient.Row")
                 .addImport("java.util.function.Function")
                 .addImport("org.reactivestreams.Publisher")
+                .add { builder1 ->
+                    var b = builder1
+                    oneToOneProprietiesMap.forEach { b = b.addImport(it.value) }
+                    b
+                }
                 .addFunction("""
                     fun save(obj: ${builder.get("entity")}): Uni<Void> {
                         ${
@@ -232,19 +251,21 @@ class RepositoryGeneratorProcessor(
                             """.trimIndent() else ""
                         }
                         return Uni.combine().all().unis<Void>(
-                            client.preparedQuery("INSERT INTO ${builder.get("table")} (${l?.joinToString(", ")}) VALUES (${
+                            client.preparedQuery("INSERT INTO ${builder.get("table")} (${l.plus(oneToOneProprieties).map { "\\\"$it\\\"" }.joinToString(", ")}) VALUES (${
                                 kotlin.run {
-                                    val ll = (l.toMutableList())
-                                    ll.replaceAll{ "$${l.indexOf(it) + 1}" }
+                                    val ll = l.plus(oneToOneProprieties).toMutableList()
+                                    ll.replaceAll{ "$${ll.indexOf(it) + 1}" }
                                     ll.joinToString(", ")
                                 }
-                            })").execute(Tuple.of(${
+                            })").execute(Tuple.from(listOf(${
                                 kotlin.run {
-                                    val ll = (l.toMutableList())
+                                    val one = oneToOneProprieties.toMutableList()
+                                    one.replaceAll{ "$it?.id" }
+                                    val ll = l.plus(one).toMutableList()
                                     ll.replaceAll{ "obj.$it" }
                                     ll.joinToString(", ")
                                 }
-                            })),
+                            }))),
                             obj.save(client)
                         ).discardItems()
                     }    
@@ -270,7 +291,7 @@ class RepositoryGeneratorProcessor(
                 .toTypedArray()
                 .filter { it != "id" }
             val ll = (l.toMutableList())
-            ll.replaceAll{ "$it = $${l.indexOf(it) + 1}" }
+            ll.replaceAll{ "$it = $${ll.indexOf(it) + 1}" }
             return builder
                 .addImport("io.smallrye.mutiny.Multi")
                 .addImport("io.smallrye.mutiny.Uni")
@@ -292,14 +313,14 @@ class RepositoryGeneratorProcessor(
                                     """.trimIndent() else ""
                         }
                         return Uni.combine().all().unis<Void>(
-                            client.preparedQuery("UPDATE ${builder.get("table")} SET ${ll.joinToString(", ")} WHERE id = $${l.size + 1}").execute(Tuple.of(${
+                            client.preparedQuery("UPDATE ${builder.get("table")} SET ${ll.joinToString(", ")} WHERE id = $${l.size + 1}").execute(Tuple.from(listOf(${
                                 kotlin.run {
                                     val lll = (l.toMutableList())
                                     lll.replaceAll{ "obj.$it" }
                                     lll.add("obj.id")
                                     lll.joinToString(", ")
                                 }
-                            })),
+                            }))),
                             obj.save(client)
                         ).discardItems()
                     }    
