@@ -272,7 +272,10 @@ class RepositoryGeneratorProcessor(
                     """.trimIndent())
         }
 
-        fun generateUpdate(builder: ClassBuilder, lazyProprieties: ArrayList<String>): ClassBuilder {
+        fun generateUpdate(
+            builder: ClassBuilder,
+            lazyProprieties: ArrayList<String>
+        ): ClassBuilder {
             codeGenerator.generatedFile.forEach{ logger.warn(it.nameWithoutExtension) }
             val line = codeGenerator.generatedFile
                 .filter { it.nameWithoutExtension == "${builder.get("entity")}Generated" }
@@ -290,8 +293,9 @@ class RepositoryGeneratorProcessor(
                 .split(",")
                 .toTypedArray()
                 .filter { it != "id" }
+                .plus(lazyProprieties)
             val ll = (l.toMutableList())
-            ll.replaceAll{ "$it = $${ll.indexOf(it) + 1}" }
+            ll.replaceAll{ "\\\"$it\\\" = $${ll.indexOf(it) + 1}" }
             return builder
                 .addImport("io.smallrye.mutiny.Multi")
                 .addImport("io.smallrye.mutiny.Uni")
@@ -315,7 +319,7 @@ class RepositoryGeneratorProcessor(
                         return Uni.combine().all().unis<Void>(
                             client.preparedQuery("UPDATE ${builder.get("table")} SET ${ll.joinToString(", ")} WHERE id = $${l.size + 1}").execute(Tuple.from(listOf(${
                                 kotlin.run {
-                                    val lll = (l.toMutableList())
+                                    val lll = l.toMutableList()
                                     lll.replaceAll{ "obj.$it" }
                                     lll.add("obj.id")
                                     lll.joinToString(", ")
