@@ -235,8 +235,8 @@ class RepositoryGeneratorProcessor(
                         builder.get(
                             "table"
                         )
-                    } WHERE ${"\$field"} = $1").execute(Tuple.of(value))
-                            else client.query("SELECT ${fields.joinToString(", ")} FROM ${builder.get("table")} WHERE ${"\$field"} IS NULL").execute()
+                    } WHERE \"${"\$field"}\" = $1").execute(Tuple.of(value))
+                            else client.query("SELECT ${fields.joinToString(", ")} FROM ${builder.get("table")} WHERE \"${"\$field"}\" IS NULL").execute()
                         return rowSet.onItem().transformToMulti(Function<RowSet<Row>, Publisher<*>> { set: RowSet<Row> ->
                             Multi.createFrom().iterable(set)
                         }).flatMap { ${builder.get("entity")}.Companion.from(it as Row, client)!!.toMulti() }
