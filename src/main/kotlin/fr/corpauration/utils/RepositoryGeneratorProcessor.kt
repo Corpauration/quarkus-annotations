@@ -464,13 +464,30 @@ class RepositoryGeneratorProcessor(
                             return client.${if (parameters.isEmpty()) "query" else "preparedQuery"}(${"\"\"\""}$sql${"\"\"\""}).execute(${if (parameters.isNotEmpty()) "Tuple.from(listOf(${List(
                         parameters.size) { index -> "p$index" }.joinToString(", ")}))" else ""})
                             .onItem()${
-                                if (function.returnType.toString() == "Uni") ".transform(RowSet<Row>::iterator).flatMap{ if (it.hasNext()) ${builder.get("entity")}).from(it.next() as Row, client) else null }"
+                                if (returnType.toString() == "Uni<Void>") ".transform { null }"
+                                else if (function.returnType.toString() == "Uni") ".transform(RowSet<Row>::iterator).flatMap{ if (it.hasNext()) ${builder.get("entity")}).from(it.next() as Row, client) else null }"
                                 else """
                                     .transformToMulti(Function<RowSet<Row>, Publisher<*>> { set: RowSet<Row> ->
                                         Multi.createFrom().iterable(set)
                                     }).flatMap { ${builder.get("entity")}.Companion.from(it as Row, client)!!.toMulti() }
                                 """.trimIndent()
                             }
+                        }
+                    """.trimIndent())
+                    .addImport("io.vertx.mutiny.sqlclient.*")
+                    .addFunction("""
+                        fun ${function.simpleName.asString()}WithTransaction(${fParameters.plus("tr: SqlConnection").joinToString(", ")}): $returnType {
+                            return tr.${if (parameters.isEmpty()) "query" else "preparedQuery"}(${"\"\"\""}$sql${"\"\"\""}).execute(${if (parameters.isNotEmpty()) "Tuple.from(listOf(${List(
+                        parameters.size) { index -> "p$index" }.joinToString(", ")}))" else ""})
+                            .onItem()${
+                        if (returnType.toString() == "Uni<Void>") ".transform { null }"
+                        else if (function.returnType.toString() == "Uni") ".transform(RowSet<Row>::iterator).flatMap{ if (it.hasNext()) ${builder.get("entity")}).from(it.next() as Row, client) else null }"
+                        else """
+                                    .transformToMulti(Function<RowSet<Row>, Publisher<*>> { set: RowSet<Row> ->
+                                        Multi.createFrom().iterable(set)
+                                    }).flatMap { ${builder.get("entity")}.Companion.from(it as Row, client)!!.toMulti() }
+                                """.trimIndent()
+                    }
                         }
                     """.trimIndent())
                 }
