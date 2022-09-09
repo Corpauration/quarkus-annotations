@@ -1,5 +1,6 @@
 package fr.corpauration.utils
 
+import com.google.devtools.ksp.innerArguments
 import com.google.devtools.ksp.processing.*
 import com.google.devtools.ksp.symbol.*
 import com.google.devtools.ksp.visitor.KSValidateVisitor
@@ -33,8 +34,9 @@ class RepositoryGeneratorProcessor(
     val logger: KSPLogger
 ) : SymbolProcessor {
 
-
+    lateinit var customSql: Sequence<KSAnnotated>
     override fun process(resolver: Resolver): List<KSAnnotated> {
+        customSql = resolver.getSymbolsWithAnnotation("fr.corpauration.utils.CustomSql")
         val symbols = resolver.getSymbolsWithAnnotation("fr.corpauration.utils.RepositoryGenerator")
         logger.warn("RepositoryGeneratorProcessor is running")
         symbols.forEach { action: KSAnnotated ->
@@ -90,6 +92,16 @@ class RepositoryGeneratorProcessor(
                         "${it.type.resolve().declaration.packageName.asString()}.${it.type}"
                 }
             }
+
+            logger.warn("Size of customSql list: ${customSql.count()}")
+            var customSqlAnnotations = customSql.map {
+                it.annotations.find { predicate: KSAnnotation ->
+                    predicate.shortName.asString() == "CustomSql"
+                }
+            }.filter {
+                it?.arguments!!.find { predicate: KSValueArgument -> predicate.name!!.asString() == "entity" }?.value == entity
+            }
+
             val file =
                 codeGenerator.createNewFile(Dependencies(true, property.containingFile!!), packageName, className)
             file.appendText(ClassBuilder(packageName, className)
@@ -140,6 +152,7 @@ class RepositoryGeneratorProcessor(
                 .add { input: ClassBuilder -> generateUpdate(input, lazyProprieties) }
                 .add { input: ClassBuilder -> generateDelete(input) }
                 .add { input: ClassBuilder -> generateLoadLazy(input, lazyProprieties, lazyProprietiesMap) }
+                .add { input: ClassBuilder -> generateCustomSqlQueries(input, customSqlAnnotations) }
                 .build())
 
             file.close()
@@ -429,6 +442,40 @@ class RepositoryGeneratorProcessor(
                         }
                     }
                 """.trimIndent())
+        }
+
+        private fun generateCustomSqlQueries(builder: ClassBuilder, annotations: Sequence<KSAnnotation?>): ClassBuilder {
+            var b = builder
+            for (annotation in annotations) {
+                if (annotation != null) {
+                    val sql = annotation.arguments.find { predicate: KSValueArgument -> predicate.name!!.asString() == "sql" }?.value as String
+                    val function = annotation.parent as KSFunctionDeclaration
+                    val returnType = function.returnType?.resolve()
+                    val parameters = function.parameters.map {
+                        it.type.resolve()
+                    }
+                    parameters.forEach {
+                        b = b.addImport(it.declaration.qualifiedName!!.asString())
+                    }
+                    val fParameters = parameters.mapIndexed { index, param -> "p$index: $param" }
+                    logger.warn(returnType.toString())
+                    b = b.addFunction("""
+                        fun ${function.simpleName.asString()}(${fParameters.joinToString(", ")}): $returnType {
+                            return client.${if (parameters.isEmpty()) "query" else "preparedQuery"}(${"\"\"\""}$sql${"\"\"\""}).execute(${if (parameters.isNotEmpty()) "Tuple.from(listOf(${List(
+                        parameters.size) { index -> "p$index" }.joinToString(", ")}))" else ""})
+                            .onItem()${
+                                if (function.returnType.toString() == "Uni") ".transform(RowSet<Row>::iterator).flatMap{ if (it.hasNext()) ${builder.get("entity")}).from(it.next() as Row, client) else null }"
+                                else """
+                                    .transformToMulti(Function<RowSet<Row>, Publisher<*>> { set: RowSet<Row> ->
+                                        Multi.createFrom().iterable(set)
+                                    }).flatMap { ${builder.get("entity")}.Companion.from(it as Row, client)!!.toMulti() }
+                                """.trimIndent()
+                            }
+                        }
+                    """.trimIndent())
+                }
+            }
+            return b
         }
 
         override fun visitAnnotated(annotated: KSAnnotated, data: KSAnnotation?) {
