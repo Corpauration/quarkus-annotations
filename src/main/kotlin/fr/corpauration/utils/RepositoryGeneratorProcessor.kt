@@ -1,6 +1,5 @@
 package fr.corpauration.utils
 
-import com.google.devtools.ksp.innerArguments
 import com.google.devtools.ksp.processing.*
 import com.google.devtools.ksp.symbol.*
 import com.google.devtools.ksp.visitor.KSValidateVisitor
@@ -68,6 +67,8 @@ class RepositoryGeneratorProcessor(
             val id = data.arguments.find { predicate: KSValueArgument -> predicate.name!!.asString() == "id" }?.value
             val entity =
                 data.arguments.find { predicate: KSValueArgument -> predicate.name!!.asString() == "entity" }?.value
+            var additionalDataSource = data.arguments.find { predicate: KSValueArgument -> predicate.name!!.asString() == "additionalDataSource" }?.value
+            if (additionalDataSource == "") additionalDataSource = null
             val entityProperties = ((entity!! as KSType).declaration as KSClassDeclaration).getAllProperties()
             val dbFields = ArrayList<String>()
             entityProperties.forEach {
@@ -102,12 +103,79 @@ class RepositoryGeneratorProcessor(
                 it?.arguments!!.find { predicate: KSValueArgument -> predicate.name!!.asString() == "entity" }?.value == entity
             }
 
+            createFile(
+                property,
+                packageName,
+                className,
+                table,
+                id,
+                entity,
+                dbFields,
+                lazyProprieties,
+                lazyProprietiesMap,
+                oneToOneProprieties,
+                oneToOneProprietiesMap,
+                customSqlAnnotations,
+                null
+            )
+
+            if (additionalDataSource != null) {
+                createFile(
+                    property,
+                    packageName,
+                    "${className}2",
+                    table,
+                    id,
+                    entity,
+                    dbFields,
+                    lazyProprieties,
+                    lazyProprietiesMap,
+                    oneToOneProprieties,
+                    oneToOneProprietiesMap,
+                    customSqlAnnotations,
+                    additionalDataSource as String
+                )
+            } else {
+                createFile(
+                    property,
+                    packageName,
+                    "${className}2",
+                    table,
+                    id,
+                    entity,
+                    dbFields,
+                    lazyProprieties,
+                    lazyProprietiesMap,
+                    oneToOneProprieties,
+                    oneToOneProprietiesMap,
+                    customSqlAnnotations,
+                    "default"
+                )
+            }
+        }
+
+        fun createFile(
+            property: KSPropertyDeclaration,
+            packageName: String,
+            className: String,
+            table: Any?,
+            id: Any?,
+            entity: Any,
+            dbFields: ArrayList<String>,
+            lazyProprieties: ArrayList<String>,
+            lazyProprietiesMap: HashMap<String, String>,
+            oneToOneProprieties: ArrayList<String>,
+            oneToOneProprietiesMap: HashMap<String, String>,
+            customSqlAnnotations: Sequence<KSAnnotation?>,
+            additionalDataSource: String?
+        ) {
             val file =
                 codeGenerator.createNewFile(Dependencies(true, property.containingFile!!), packageName, className)
             file.appendText(ClassBuilder(packageName, className)
                 .addImport("javax.enterprise.context.ApplicationScoped")
                 .addImport("javax.inject.Inject")
                 .addImport("io.vertx.mutiny.pgclient.PgPool")
+                .addImport("io.quarkus.reactive.datasource.ReactiveDataSource")
                 .addImport("$packageName.from")
                 .addImport("java.util.UUID")
                 .set("table", table)
@@ -134,25 +202,27 @@ class RepositoryGeneratorProcessor(
                 .addField(
                     """
                     @Inject
+                    ${if (additionalDataSource != null && additionalDataSource != "default") """@ReactiveDataSource("$additionalDataSource") """ else ""}
                     lateinit var client: PgPool
                 """.trimIndent()
                 )
-                .add { input: ClassBuilder -> generateGetAll(input, dbFields) }
+                .add { input: ClassBuilder -> generateGetAll(input, dbFields, additionalDataSource != null) }
                 .add { input: ClassBuilder -> generateGetIds(input) }
                 .add { input: ClassBuilder -> generateFindById(input, dbFields) }
-                .add { input: ClassBuilder -> generateFindBy(input, dbFields) }
+                .add { input: ClassBuilder -> generateFindBy(input, dbFields, additionalDataSource != null) }
                 .add { input: ClassBuilder ->
                     generateSave(
                         input,
                         lazyProprieties,
                         oneToOneProprieties,
-                        oneToOneProprietiesMap
+                        oneToOneProprietiesMap,
+                        additionalDataSource != null
                     )
                 }
-                .add { input: ClassBuilder -> generateUpdate(input, lazyProprieties) }
+                .add { input: ClassBuilder -> generateUpdate(input, lazyProprieties, additionalDataSource != null) }
                 .add { input: ClassBuilder -> generateDelete(input) }
                 .add { input: ClassBuilder -> generateLoadLazy(input, lazyProprieties, lazyProprietiesMap) }
-                .add { input: ClassBuilder -> generateCustomSqlQueries(input, customSqlAnnotations) }
+                .add { input: ClassBuilder -> generateCustomSqlQueries(input, customSqlAnnotations, additionalDataSource != null) }
                 .build())
 
             file.close()
@@ -162,7 +232,7 @@ class RepositoryGeneratorProcessor(
 
         }
 
-        fun generateGetAll(builder: ClassBuilder, dbFields: ArrayList<String>): ClassBuilder {
+        fun generateGetAll(builder: ClassBuilder, dbFields: ArrayList<String>, add: Boolean): ClassBuilder {
             val fields = dbFields.toMutableList()
             fields.replaceAll { "\\\"$it\\\"" }
             return builder
@@ -182,7 +252,7 @@ class RepositoryGeneratorProcessor(
                     }").execute()
                     return rowSet.onItem().transformToMulti(Function<RowSet<Row>, Publisher<*>> { set: RowSet<Row> ->
                         Multi.createFrom().iterable(set)
-                    }).flatMap { ${builder.get("entity")}.Companion.from(it as Row, client)!!.toMulti() }
+                    }).flatMap { ${builder.get("entity")}.Companion.from${if (add) "2" else ""}(it as Row, client)!!.toMulti() }
                 }
                 """.trimIndent()
                 )
@@ -231,7 +301,7 @@ class RepositoryGeneratorProcessor(
                 )
         }
 
-        fun generateFindBy(builder: ClassBuilder, dbFields: ArrayList<String>): ClassBuilder {
+        fun generateFindBy(builder: ClassBuilder, dbFields: ArrayList<String>, add: Boolean): ClassBuilder {
             val fields = dbFields.toMutableList()
             fields.replaceAll { "\\\"$it\\\"" }
             return builder
@@ -252,7 +322,7 @@ class RepositoryGeneratorProcessor(
                             else client.query("SELECT ${fields.joinToString(", ")} FROM ${builder.get("table")} WHERE \"${"\$field"}\" IS NULL").execute()
                         return rowSet.onItem().transformToMulti(Function<RowSet<Row>, Publisher<*>> { set: RowSet<Row> ->
                             Multi.createFrom().iterable(set)
-                        }).flatMap { ${builder.get("entity")}.Companion.from(it as Row, client)!!.toMulti() }
+                        }).flatMap { ${builder.get("entity")}.Companion.from${if (add) "2" else ""}(it as Row, client)!!.toMulti() }
                     }    
                     """.trimIndent()
                 )
@@ -262,7 +332,8 @@ class RepositoryGeneratorProcessor(
             builder: ClassBuilder,
             lazyProprieties: ArrayList<String>,
             oneToOneProprieties: ArrayList<String>,
-            oneToOneProprietiesMap: HashMap<String, String>
+            oneToOneProprietiesMap: HashMap<String, String>,
+            add: Boolean
         ): ClassBuilder {
             codeGenerator.generatedFile.forEach { logger.warn(it.nameWithoutExtension) }
             val line = codeGenerator.generatedFile
@@ -320,7 +391,7 @@ class RepositoryGeneratorProcessor(
                         ll.joinToString(", ")
                     }
                 }))),
-                            obj.save(client)
+                            obj.save${if (add) "2" else ""}(client)
                         ).discardItems()
                     }    
                     """.trimIndent())
@@ -328,7 +399,8 @@ class RepositoryGeneratorProcessor(
 
         fun generateUpdate(
             builder: ClassBuilder,
-            lazyProprieties: ArrayList<String>
+            lazyProprieties: ArrayList<String>,
+            add: Boolean
         ): ClassBuilder {
             codeGenerator.generatedFile.forEach { logger.warn(it.nameWithoutExtension) }
             val line = codeGenerator.generatedFile
@@ -378,7 +450,7 @@ class RepositoryGeneratorProcessor(
                         lll.joinToString(", ")
                     }
                 }))),
-                            obj.save(client)
+                            obj.save${if (add) "2" else ""}(client)
                         ).discardItems()
                     }    
                     """.trimIndent())
@@ -444,7 +516,7 @@ class RepositoryGeneratorProcessor(
                 """.trimIndent())
         }
 
-        private fun generateCustomSqlQueries(builder: ClassBuilder, annotations: Sequence<KSAnnotation?>): ClassBuilder {
+        private fun generateCustomSqlQueries(builder: ClassBuilder, annotations: Sequence<KSAnnotation?>, add: Boolean): ClassBuilder {
             var b = builder
             for (annotation in annotations) {
                 if (annotation != null) {
@@ -469,7 +541,7 @@ class RepositoryGeneratorProcessor(
                                 else """
                                     .transformToMulti(Function<RowSet<Row>, Publisher<*>> { set: RowSet<Row> ->
                                         Multi.createFrom().iterable(set)
-                                    }).flatMap { ${builder.get("entity")}.Companion.from(it as Row, client)!!.toMulti() }
+                                    }).flatMap { ${builder.get("entity")}.Companion.from${if (add) "2" else ""}(it as Row, client)!!.toMulti() }
                                 """.trimIndent()
                             }
                         }
@@ -485,7 +557,7 @@ class RepositoryGeneratorProcessor(
                         else """
                                     .transformToMulti(Function<RowSet<Row>, Publisher<*>> { set: RowSet<Row> ->
                                         Multi.createFrom().iterable(set)
-                                    }).flatMap { ${builder.get("entity")}.Companion.from(it as Row, client)!!.toMulti() }
+                                    }).flatMap { ${builder.get("entity")}.Companion.from${if (add) "2" else ""}(it as Row, client)!!.toMulti() }
                                 """.trimIndent()
                     }
                         }

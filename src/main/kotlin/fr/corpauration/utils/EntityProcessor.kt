@@ -173,12 +173,57 @@ class EntityProcessor(
                     }
                 """.trimIndent())
                 .addExtension("""
+                    fun $originalClass.Companion.from2(row: Row, client: PgPool): Uni<$originalClass> {
+                        val o = $originalClass($str)
+                        ${
+                    kotlin.run {
+                        var str2 = ""
+                        oneToOneMeta.forEach { key, metadata ->
+                            str2 += "val $key = if(row.getValue(\"$key\") != null) ${metadata["repository"]}2.INSTANCE.findById(row.getValue(\"$key\") as ${metadata["id"]}).onItem().transform { o.$key = it as ${metadata["type"]}; o } else Uni.createFrom().item(o)\n"
+                        }
+                        str2
+                    }
+                }
+                        return Uni.combine().all().unis<$originalClass>(Uni.createFrom().item(o)${
+                    kotlin.run {
+                        var str = ""
+                        oneToOneMeta.keys.forEachIndexed { i, it -> str += ", $it" }
+                        manyToManyMeta.keys.forEachIndexed { i, it -> str += ", o.load_$it(client)" }
+                        str
+                    }
+                }).combinedWith {
+                            ${
+                    kotlin.run {
+                        var str = ""
+                        var pad = oneToOneMeta.keys.size - 1
+                        oneToOneMeta.keys.forEachIndexed { i, it -> str += "(it[0] as $originalClass).$it = (it[${i + 1}] as $originalClass).$it\n" }
+                        manyToManyMeta.keys.forEachIndexed { i, it -> str += "(it[0] as $originalClass).$it = (it[${i + 1 + pad}] as $originalClass).$it\n" }
+                        str
+                    }
+                }
+                            return@combinedWith it[0] as $originalClass
+                        }
+                    }
+                """.trimIndent())
+                .addExtension("""
                     fun $originalClass.save(client: PgPool): Uni<Void> {
                         return Uni.combine().all().unis<Void>(Uni.createFrom().item<Int>(0) ${
                     kotlin.run {
                         var str = ""
                         manyToManyMeta.keys.forEachIndexed { i, it -> str += ", this.save_$it(client)" }
                         oneToOneMeta.keys.forEachIndexed { i, it -> str += ", this.save_$it(client)" }
+                        str
+                    }
+                }).discardItems()
+                    }
+                """.trimIndent())
+                .addExtension("""
+                    fun $originalClass.save2(client: PgPool): Uni<Void> {
+                        return Uni.combine().all().unis<Void>(Uni.createFrom().item<Int>(0) ${
+                    kotlin.run {
+                        var str = ""
+                        manyToManyMeta.keys.forEachIndexed { i, it -> str += ", this.save_${it}(client)" }
+                        oneToOneMeta.keys.forEachIndexed { i, it -> str += ", this.save_${it}2(client)" }
                         str
                     }
                 }).discardItems()
@@ -279,6 +324,7 @@ class EntityProcessor(
                     .addImport("io.vertx.mutiny.sqlclient.Tuple")
                     .addImport("${metadata["import"]!!}.${metadata["type"]}")
                     .addImport("${metadata["import"]!!}.${metadata["repository"]}")
+                    .addImport("${metadata["import"]!!}.${metadata["repository"]}2")
                     .addImport("${metadata["import"]!!}.from")
                     .addExtension(
                         """
@@ -289,6 +335,22 @@ class EntityProcessor(
                             originalClass.replace(
                                 "Entity",
                                 "Repository"
+                            )
+                        }.TABLE} SET \"$prop\" = $1 WHERE id = $2").execute(Tuple.of(if (this.$prop != null) this.$prop!!.id else null, this.id)))
+                            Uni.combine().all().unis<RowSet<Row>>(queries).discardItems()
+                        }
+                    }
+                    """.trimIndent()
+                    )
+                    .addExtension(
+                        """
+                    fun $originalClass.save_${prop}2(client: PgPool): Uni<Void> {
+                        return client.withTransaction{
+                            val queries = ArrayList<Uni<RowSet<Row>>>()
+                            queries.add(it.preparedQuery("UPDATE ${'$'}{${
+                            originalClass.replace(
+                                "Entity",
+                                "Repository2"
                             )
                         }.TABLE} SET \"$prop\" = $1 WHERE id = $2").execute(Tuple.of(if (this.$prop != null) this.$prop!!.id else null, this.id)))
                             Uni.combine().all().unis<RowSet<Row>>(queries).discardItems()
