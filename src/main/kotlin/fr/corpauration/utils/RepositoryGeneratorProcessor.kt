@@ -442,14 +442,20 @@ class RepositoryGeneratorProcessor(
                                     """.trimIndent() else ""
                 }
                         return Uni.combine().all().unis<Void>(
-                            client.preparedQuery("UPDATE ${builder.get("table")} SET ${ll.joinToString(", ")} WHERE id = $${l.size + 1}").execute(Tuple.from(listOf(${
-                    kotlin.run {
-                        val lll = l.toMutableList()
-                        lll.replaceAll { "obj.$it" }
-                        lll.add("obj.id")
-                        lll.joinToString(", ")
-                    }
-                }))),
+                        ${
+                            if (ll.size > 0) {
+                                """
+                                    client.preparedQuery("UPDATE ${builder.get("table")} SET ${ll.joinToString(", ")} WHERE id = ${'$'}${l.size + 1}").execute(Tuple.from(listOf(${
+                                    kotlin.run {
+                                        val lll = l.toMutableList()
+                                        lll.replaceAll { "obj.$it" }
+                                        lll.add("obj.id")
+                                        lll.joinToString(", ")
+                                    }
+                                    }))),
+                                """.trimIndent()
+                            } else ""
+                        }
                             obj.save${if (add) "2" else ""}(client)
                         ).discardItems()
                     }    
