@@ -47,10 +47,6 @@ publishing {
         }
     }
     publications {
-        create<MavenPublication>("maven") {
-            from(components["java"])
-        }
-
         register("gprRelease", MavenPublication::class) {
             from(components["java"])
 
