@@ -17,8 +17,7 @@ repositories {
 dependencies {
     implementation("org.jetbrains.kotlin:kotlin-stdlib:1.6.21")
     implementation("org.jetbrains.kotlin:kotlin-reflect:1.6.21")
-    implementation("io.quarkus:quarkus-reactive-pg-client:2.9.2.Final")
-    implementation("com.squareup:kotlinpoet:1.12.0")
+    implementation("io.quarkus:quarkus-reactive-pg-client:2.12.3.Final")
     implementation("com.google.devtools.ksp:symbol-processing-api:1.6.21-1.0.6")
 }
 
