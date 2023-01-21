@@ -544,6 +544,11 @@ class RepositoryGeneratorProcessor(
                             .onItem()${
                                 if (returnType.toString() == "Uni<Void>") ".transform { null }"
                                 else if (function.returnType.toString() == "Uni") ".transform(RowSet<Row>::iterator).flatMap{ if (it.hasNext()) ${builder.get("entity")}).from(it.next() as Row, client) else null }"
+                                else if (returnType.toString() == "Multi<String>") """
+                                    .transformToMulti(Function<RowSet<Row>, Publisher<*>> { set: RowSet<Row> ->
+                                        Multi.createFrom().iterable(set)
+                                    }).onItem().transform { (it as Row).getValue(0) as String }
+                                """.trimIndent()
                                 else """
                                     .transformToMulti(Function<RowSet<Row>, Publisher<*>> { set: RowSet<Row> ->
                                         Multi.createFrom().iterable(set)
@@ -560,6 +565,11 @@ class RepositoryGeneratorProcessor(
                             .onItem()${
                         if (returnType.toString() == "Uni<Void>") ".transform { null }"
                         else if (function.returnType.toString() == "Uni") ".transform(RowSet<Row>::iterator).flatMap{ if (it.hasNext()) ${builder.get("entity")}).from(it.next() as Row, client) else null }"
+                        else if (returnType.toString() == "Multi<String>") """
+                                    .transformToMulti(Function<RowSet<Row>, Publisher<*>> { set: RowSet<Row> ->
+                                        Multi.createFrom().iterable(set)
+                                    }).onItem().transform { (it as Row).getValue(0) as String }
+                                """.trimIndent()
                         else """
                                     .transformToMulti(Function<RowSet<Row>, Publisher<*>> { set: RowSet<Row> ->
                                         Multi.createFrom().iterable(set)
