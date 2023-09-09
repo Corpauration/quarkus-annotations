@@ -62,10 +62,8 @@ class EntityProcessor(
                 } else if (it.annotations.find { it.shortName.asString() == "Lazy" } != null) {
 //                    propertiesMap.put(it.simpleName.asString(), it.type.toString())
                 } else {
-                    propertiesMap.put(
-                        it.simpleName.asString(),
+                    propertiesMap[it.simpleName.asString()] =
                         it.type.toString() + if (it.type.resolve().isMarkedNullable) "?" else ""
-                    )
                 }
 
                 if (it.type.resolve().declaration.packageName.asString() != "kotlin")
@@ -121,7 +119,7 @@ class EntityProcessor(
 
         }
 
-        fun generateExtension(
+        private fun generateExtension(
             builder: ClassBuilder,
             properties: HashMap<String, String>,
             originalClass: String,
@@ -154,15 +152,15 @@ class EntityProcessor(
                         return Uni.combine().all().unis<$originalClass>(Uni.createFrom().item(o)${
                     kotlin.run {
                         var str = ""
-                        oneToOneMeta.keys.forEachIndexed { i, it -> str += ", $it" }
-                        manyToManyMeta.keys.forEachIndexed { i, it -> str += ", o.load_$it(client)" }
+                        oneToOneMeta.keys.forEach { str += ", $it" }
+                        manyToManyMeta.keys.forEach { str += ", o.load_$it(client)" }
                         str
                     }
                 }).combinedWith {
                             ${
                     kotlin.run {
                         var str = ""
-                        var pad = oneToOneMeta.keys.size - 1
+                        val pad = oneToOneMeta.keys.size - 1
                         oneToOneMeta.keys.forEachIndexed { i, it -> str += "(it[0] as $originalClass).$it = (it[${i + 1}] as $originalClass).$it\n" }
                         manyToManyMeta.keys.forEachIndexed { i, it -> str += "(it[0] as $originalClass).$it = (it[${i + 1 + pad}] as $originalClass).$it\n" }
                         str
@@ -187,15 +185,15 @@ class EntityProcessor(
                         return Uni.combine().all().unis<$originalClass>(Uni.createFrom().item(o)${
                     kotlin.run {
                         var str = ""
-                        oneToOneMeta.keys.forEachIndexed { i, it -> str += ", $it" }
-                        manyToManyMeta.keys.forEachIndexed { i, it -> str += ", o.load_$it(client)" }
+                        oneToOneMeta.keys.forEach { str += ", $it" }
+                        manyToManyMeta.keys.forEach { str += ", o.load_$it(client)" }
                         str
                     }
                 }).combinedWith {
                             ${
                     kotlin.run {
                         var str = ""
-                        var pad = oneToOneMeta.keys.size - 1
+                        val pad = oneToOneMeta.keys.size - 1
                         oneToOneMeta.keys.forEachIndexed { i, it -> str += "(it[0] as $originalClass).$it = (it[${i + 1}] as $originalClass).$it\n" }
                         manyToManyMeta.keys.forEachIndexed { i, it -> str += "(it[0] as $originalClass).$it = (it[${i + 1 + pad}] as $originalClass).$it\n" }
                         str
@@ -210,8 +208,8 @@ class EntityProcessor(
                         return Uni.combine().all().unis<Void>(Uni.createFrom().item<Int>(0) ${
                     kotlin.run {
                         var str = ""
-                        manyToManyMeta.keys.forEachIndexed { i, it -> str += ", this.save_$it(client)" }
-                        oneToOneMeta.keys.forEachIndexed { i, it -> str += ", this.save_$it(client)" }
+                        manyToManyMeta.keys.forEach { str += ", this.save_$it(client)" }
+                        oneToOneMeta.keys.forEach { str += ", this.save_$it(client)" }
                         str
                     }
                 }).discardItems()
@@ -222,8 +220,8 @@ class EntityProcessor(
                         return Uni.combine().all().unis<Void>(Uni.createFrom().item<Int>(0) ${
                     kotlin.run {
                         var str = ""
-                        manyToManyMeta.keys.forEachIndexed { i, it -> str += ", this.save_${it}(client)" }
-                        oneToOneMeta.keys.forEachIndexed { i, it -> str += ", this.save_${it}2(client)" }
+                        manyToManyMeta.keys.forEach { str += ", this.save_${it}(client)" }
+                        oneToOneMeta.keys.forEach { str += ", this.save_${it}2(client)" }
                         str
                     }
                 }).discardItems()
@@ -234,7 +232,7 @@ class EntityProcessor(
                         return Uni.combine().all().unis<Void>(Uni.createFrom().item<Int>(0) ${
                     kotlin.run {
                         var str = ""
-                        manyToManyMeta.keys.forEachIndexed { i, it -> str += ", this.delete_$it(client)" }
+                        manyToManyMeta.keys.forEach { str += ", this.delete_$it(client)" }
                         str
                     }
                 }).discardItems()
@@ -242,7 +240,7 @@ class EntityProcessor(
                 """.trimIndent())
         }
 
-        fun generateExtensionManyToMany(
+        private fun generateExtensionManyToMany(
             builder: ClassBuilder,
             originalClass: String,
             manyToManyMeta: HashMap<String, HashMap<String, String>>
@@ -305,7 +303,7 @@ class EntityProcessor(
 
         }
 
-        fun generateExtensionOneToOne(
+        private fun generateExtensionOneToOne(
             builder: ClassBuilder,
             originalClass: String,
             oneToOneMeta: HashMap<String, HashMap<String, String>>

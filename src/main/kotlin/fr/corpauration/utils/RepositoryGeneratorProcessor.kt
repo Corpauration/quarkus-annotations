@@ -5,8 +5,6 @@ import com.google.devtools.ksp.symbol.*
 import com.google.devtools.ksp.visitor.KSValidateVisitor
 import java.io.OutputStream
 import java.util.*
-import kotlin.collections.ArrayList
-import kotlin.collections.HashMap
 
 
 fun OutputStream.appendText(str: String) {
@@ -67,7 +65,8 @@ class RepositoryGeneratorProcessor(
             val id = data.arguments.find { predicate: KSValueArgument -> predicate.name!!.asString() == "id" }?.value
             val entity =
                 data.arguments.find { predicate: KSValueArgument -> predicate.name!!.asString() == "entity" }?.value
-            var additionalDataSource = data.arguments.find { predicate: KSValueArgument -> predicate.name!!.asString() == "additionalDataSource" }?.value
+            var additionalDataSource =
+                data.arguments.find { predicate: KSValueArgument -> predicate.name!!.asString() == "additionalDataSource" }?.value
             if (additionalDataSource == "") additionalDataSource = null
             val entityProperties = ((entity!! as KSType).declaration as KSClassDeclaration).getAllProperties()
             val dbFields = ArrayList<String>()
@@ -94,8 +93,7 @@ class RepositoryGeneratorProcessor(
                 }
             }
 
-            logger.warn("Size of customSql list: ${customSql.count()}")
-            var customSqlAnnotations = customSql.map {
+            val customSqlAnnotations = customSql.map {
                 it.annotations.find { predicate: KSAnnotation ->
                     predicate.shortName.asString() == "CustomSql"
                 }
@@ -154,7 +152,7 @@ class RepositoryGeneratorProcessor(
             }
         }
 
-        fun createFile(
+        private fun createFile(
             property: KSPropertyDeclaration,
             packageName: String,
             className: String,
@@ -222,7 +220,13 @@ class RepositoryGeneratorProcessor(
                 .add { input: ClassBuilder -> generateUpdate(input, lazyProprieties, additionalDataSource != null) }
                 .add { input: ClassBuilder -> generateDelete(input) }
                 .add { input: ClassBuilder -> generateLoadLazy(input, lazyProprieties, lazyProprietiesMap) }
-                .add { input: ClassBuilder -> generateCustomSqlQueries(input, customSqlAnnotations, additionalDataSource != null) }
+                .add { input: ClassBuilder ->
+                    generateCustomSqlQueries(
+                        input,
+                        customSqlAnnotations,
+                        additionalDataSource != null
+                    )
+                }
                 .build())
 
             file.close()
@@ -232,7 +236,7 @@ class RepositoryGeneratorProcessor(
 
         }
 
-        fun generateGetAll(builder: ClassBuilder, dbFields: ArrayList<String>, add: Boolean): ClassBuilder {
+        private fun generateGetAll(builder: ClassBuilder, dbFields: ArrayList<String>, add: Boolean): ClassBuilder {
             val fields = dbFields.toMutableList()
             fields.replaceAll { "\\\"$it\\\"" }
             return builder
@@ -258,7 +262,7 @@ class RepositoryGeneratorProcessor(
                 )
         }
 
-        fun generateGetIds(builder: ClassBuilder): ClassBuilder {
+        private fun generateGetIds(builder: ClassBuilder): ClassBuilder {
             return builder
                 .addImport("io.smallrye.mutiny.Multi")
                 .addImport("io.smallrye.mutiny.Uni")
@@ -280,7 +284,7 @@ class RepositoryGeneratorProcessor(
                 )
         }
 
-        fun generateFindById(builder: ClassBuilder, dbFields: ArrayList<String>): ClassBuilder {
+        private fun generateFindById(builder: ClassBuilder, dbFields: ArrayList<String>): ClassBuilder {
             val fields = dbFields.toMutableList()
             fields.replaceAll { "\\\"$it\\\"" }
             return builder.addImport("io.smallrye.mutiny.Multi")
@@ -301,7 +305,7 @@ class RepositoryGeneratorProcessor(
                 )
         }
 
-        fun generateFindBy(builder: ClassBuilder, dbFields: ArrayList<String>, add: Boolean): ClassBuilder {
+        private fun generateFindBy(builder: ClassBuilder, dbFields: ArrayList<String>, add: Boolean): ClassBuilder {
             val fields = dbFields.toMutableList()
             fields.replaceAll { "\\\"$it\\\"" }
             return builder
@@ -328,24 +332,22 @@ class RepositoryGeneratorProcessor(
                 )
         }
 
-        fun generateSave(
+        private fun generateSave(
             builder: ClassBuilder,
             lazyProprieties: ArrayList<String>,
             oneToOneProprieties: ArrayList<String>,
             oneToOneProprietiesMap: HashMap<String, String>,
             add: Boolean
         ): ClassBuilder {
-            codeGenerator.generatedFile.forEach { logger.warn(it.nameWithoutExtension) }
-            val line = codeGenerator.generatedFile
-                .filter { it.nameWithoutExtension == "${builder.get("entity")}Generated" }
-                .first()
-                .bufferedReader()
-                .useLines { lines: Sequence<String> ->
-                    lines
-                        .take(1)
-                        .toList()
-                        .first()
-                }
+            val line =
+                codeGenerator.generatedFile.first { it.nameWithoutExtension == "${builder.get("entity")}Generated" }
+                    .bufferedReader()
+                    .useLines { lines: Sequence<String> ->
+                        lines
+                            .take(1)
+                            .toList()
+                            .first()
+                    }
             var l = Regex("\\[(.*)\\]").find(line)?.groupValues!![1].split(",").toTypedArray()
             l = l.plus(lazyProprieties)
             return builder
@@ -375,7 +377,7 @@ class RepositoryGeneratorProcessor(
                 }
                         return Uni.combine().all().unis<Void>(
                             client.preparedQuery("INSERT INTO ${builder.get("table")} (${
-                    l.plus(oneToOneProprieties).map { "\\\"$it\\\"" }.joinToString(", ")
+                    l.plus(oneToOneProprieties).joinToString(", ") { "\\\"$it\\\"" }
                 }) VALUES (${
                     kotlin.run {
                         val ll = l.plus(oneToOneProprieties).toMutableList()
@@ -397,22 +399,20 @@ class RepositoryGeneratorProcessor(
                     """.trimIndent())
         }
 
-        fun generateUpdate(
+        private fun generateUpdate(
             builder: ClassBuilder,
             lazyProprieties: ArrayList<String>,
             add: Boolean
         ): ClassBuilder {
-            codeGenerator.generatedFile.forEach { logger.warn(it.nameWithoutExtension) }
-            val line = codeGenerator.generatedFile
-                .filter { it.nameWithoutExtension == "${builder.get("entity")}Generated" }
-                .first()
-                .bufferedReader()
-                .useLines { lines: Sequence<String> ->
-                    lines
-                        .take(1)
-                        .toList()
-                        .first()
-                }
+            val line =
+                codeGenerator.generatedFile.first { it.nameWithoutExtension == "${builder.get("entity")}Generated" }
+                    .bufferedReader()
+                    .useLines { lines: Sequence<String> ->
+                        lines
+                            .take(1)
+                            .toList()
+                            .first()
+                    }
             val l = Regex("\\[(.*)\\]")
                 .find(line)?.groupValues!![1]
                 .split(",")
@@ -443,26 +443,26 @@ class RepositoryGeneratorProcessor(
                 }
                         return Uni.combine().all().unis<Void>(
                         ${
-                            if (ll.size > 0) {
-                                """
+                    if (ll.size > 0) {
+                        """
                                     client.preparedQuery("UPDATE ${builder.get("table")} SET ${ll.joinToString(", ")} WHERE id = ${'$'}${l.size + 1}").execute(Tuple.from(listOf(${
-                                    kotlin.run {
-                                        val lll = l.toMutableList()
-                                        lll.replaceAll { "obj.$it" }
-                                        lll.add("obj.id")
-                                        lll.joinToString(", ")
-                                    }
-                                    }))),
+                            kotlin.run {
+                                val lll = l.toMutableList()
+                                lll.replaceAll { "obj.$it" }
+                                lll.add("obj.id")
+                                lll.joinToString(", ")
+                            }
+                        }))),
                                 """.trimIndent()
-                            } else ""
-                        }
+                    } else ""
+                }
                             obj.save${if (add) "2" else ""}(client)
                         ).discardItems()
                     }    
                     """.trimIndent())
         }
 
-        fun generateDelete(builder: ClassBuilder): ClassBuilder {
+        private fun generateDelete(builder: ClassBuilder): ClassBuilder {
             return builder
                 .addImport("io.smallrye.mutiny.Multi")
                 .addImport("io.smallrye.mutiny.Uni")
@@ -522,11 +522,16 @@ class RepositoryGeneratorProcessor(
                 """.trimIndent())
         }
 
-        private fun generateCustomSqlQueries(builder: ClassBuilder, annotations: Sequence<KSAnnotation?>, add: Boolean): ClassBuilder {
+        private fun generateCustomSqlQueries(
+            builder: ClassBuilder,
+            annotations: Sequence<KSAnnotation?>,
+            add: Boolean
+        ): ClassBuilder {
             var b = builder
             for (annotation in annotations) {
                 if (annotation != null) {
-                    val sql = annotation.arguments.find { predicate: KSValueArgument -> predicate.name!!.asString() == "sql" }?.value as String
+                    val sql =
+                        annotation.arguments.find { predicate: KSValueArgument -> predicate.name!!.asString() == "sql" }?.value as String
                     val function = annotation.parent as KSFunctionDeclaration
                     val returnType = function.returnType?.resolve()
                     val parameters = function.parameters.map {
@@ -536,14 +541,57 @@ class RepositoryGeneratorProcessor(
                         b = b.addImport(it.declaration.qualifiedName!!.asString())
                     }
                     val fParameters = parameters.mapIndexed { index, param -> "p$index: $param" }
-                    logger.warn(returnType.toString())
-                    b = b.addFunction("""
+                    b = b.addFunction(
+                        """
                         fun ${function.simpleName.asString()}(${fParameters.joinToString(", ")}): $returnType {
-                            return client.${if (parameters.isEmpty()) "query" else "preparedQuery"}(${"\"\"\""}$sql${"\"\"\""}).execute(${if (parameters.isNotEmpty()) "Tuple.from(listOf(${List(
-                        parameters.size) { index -> "p$index" }.joinToString(", ")}))" else ""})
+                            return client.${if (parameters.isEmpty()) "query" else "preparedQuery"}(${"\"\"\""}$sql${"\"\"\""}).execute(${
+                            if (parameters.isNotEmpty()) "Tuple.from(listOf(${
+                                List(
+                                    parameters.size
+                                ) { index -> "p$index" }.joinToString(", ")
+                            }))" else ""
+                        })
+                            .onItem()${
+                            if (returnType.toString() == "Uni<Void>") ".transform { null }"
+                            else if (function.returnType.toString() == "Uni") ".transform(RowSet<Row>::iterator).flatMap{ if (it.hasNext()) ${
+                                builder.get(
+                                    "entity"
+                                )
+                            }).from(it.next() as Row, client) else null }"
+                            else if (returnType.toString() == "Multi<String>") """
+                                    .transformToMulti(Function<RowSet<Row>, Publisher<*>> { set: RowSet<Row> ->
+                                        Multi.createFrom().iterable(set)
+                                    }).onItem().transform { (it as Row).getValue(0) as String }
+                                """.trimIndent()
+                            else """
+                                    .transformToMulti(Function<RowSet<Row>, Publisher<*>> { set: RowSet<Row> ->
+                                        Multi.createFrom().iterable(set)
+                                    }).flatMap { ${builder.get("entity")}.Companion.from${if (add) "2" else ""}(it as Row, client)!!.toMulti() }
+                                """.trimIndent()
+                        }
+                        }
+                    """.trimIndent()
+                    )
+                        .addImport("io.vertx.mutiny.sqlclient.*")
+                        .addFunction(
+                            """
+                        fun ${function.simpleName.asString()}WithTransaction(${
+                                fParameters.plus("tr: SqlConnection").joinToString(", ")
+                            }): $returnType {
+                            return tr.${if (parameters.isEmpty()) "query" else "preparedQuery"}(${"\"\"\""}$sql${"\"\"\""}).execute(${
+                                if (parameters.isNotEmpty()) "Tuple.from(listOf(${
+                                    List(
+                                        parameters.size
+                                    ) { index -> "p$index" }.joinToString(", ")
+                                }))" else ""
+                            })
                             .onItem()${
                                 if (returnType.toString() == "Uni<Void>") ".transform { null }"
-                                else if (function.returnType.toString() == "Uni") ".transform(RowSet<Row>::iterator).flatMap{ if (it.hasNext()) ${builder.get("entity")}).from(it.next() as Row, client) else null }"
+                                else if (function.returnType.toString() == "Uni") ".transform(RowSet<Row>::iterator).flatMap{ if (it.hasNext()) ${
+                                    builder.get(
+                                        "entity"
+                                    )
+                                }).from(it.next() as Row, client) else null }"
                                 else if (returnType.toString() == "Multi<String>") """
                                     .transformToMulti(Function<RowSet<Row>, Publisher<*>> { set: RowSet<Row> ->
                                         Multi.createFrom().iterable(set)
@@ -556,28 +604,8 @@ class RepositoryGeneratorProcessor(
                                 """.trimIndent()
                             }
                         }
-                    """.trimIndent())
-                    .addImport("io.vertx.mutiny.sqlclient.*")
-                    .addFunction("""
-                        fun ${function.simpleName.asString()}WithTransaction(${fParameters.plus("tr: SqlConnection").joinToString(", ")}): $returnType {
-                            return tr.${if (parameters.isEmpty()) "query" else "preparedQuery"}(${"\"\"\""}$sql${"\"\"\""}).execute(${if (parameters.isNotEmpty()) "Tuple.from(listOf(${List(
-                        parameters.size) { index -> "p$index" }.joinToString(", ")}))" else ""})
-                            .onItem()${
-                        if (returnType.toString() == "Uni<Void>") ".transform { null }"
-                        else if (function.returnType.toString() == "Uni") ".transform(RowSet<Row>::iterator).flatMap{ if (it.hasNext()) ${builder.get("entity")}).from(it.next() as Row, client) else null }"
-                        else if (returnType.toString() == "Multi<String>") """
-                                    .transformToMulti(Function<RowSet<Row>, Publisher<*>> { set: RowSet<Row> ->
-                                        Multi.createFrom().iterable(set)
-                                    }).onItem().transform { (it as Row).getValue(0) as String }
-                                """.trimIndent()
-                        else """
-                                    .transformToMulti(Function<RowSet<Row>, Publisher<*>> { set: RowSet<Row> ->
-                                        Multi.createFrom().iterable(set)
-                                    }).flatMap { ${builder.get("entity")}.Companion.from${if (add) "2" else ""}(it as Row, client)!!.toMulti() }
-                                """.trimIndent()
-                    }
-                        }
-                    """.trimIndent())
+                    """.trimIndent()
+                        )
                 }
             }
             return b
