@@ -1,5 +1,5 @@
 plugins {
-    kotlin("jvm") version "1.6.21"
+    kotlin("jvm") version "1.9.0"
     id("maven-publish")
 }
 
@@ -15,18 +15,23 @@ repositories {
 }
 
 dependencies {
-    implementation("org.jetbrains.kotlin:kotlin-stdlib:1.6.21")
-    implementation("org.jetbrains.kotlin:kotlin-reflect:1.6.21")
-    implementation("io.quarkus:quarkus-reactive-pg-client:2.12.3.Final")
-    implementation("com.google.devtools.ksp:symbol-processing-api:1.6.21-1.0.6")
+    implementation("org.jetbrains.kotlin:kotlin-stdlib:1.9.0")
+    implementation("org.jetbrains.kotlin:kotlin-reflect:1.9.0")
+    implementation("io.quarkus:quarkus-reactive-pg-client:2.16.9.Final")
+    implementation("com.google.devtools.ksp:symbol-processing-api:1.9.0-1.0.11")
 }
 
 tasks.test {
     useJUnitPlatform()
 }
 
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
-    kotlinOptions.jvmTarget = JavaVersion.VERSION_16.toString()
+    kotlinOptions.jvmTarget = JavaVersion.VERSION_17.toString()
     kotlinOptions.javaParameters = true
 }
 

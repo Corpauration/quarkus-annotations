@@ -666,6 +666,10 @@ class RepositoryGeneratorProcessor(
         override fun visitValueParameter(valueParameter: KSValueParameter, data: KSAnnotation?) {
 
         }
+
+        override fun visitDefNonNullReference(reference: KSDefNonNullReference, data: KSAnnotation?) {
+
+        }
     }
 }
 
