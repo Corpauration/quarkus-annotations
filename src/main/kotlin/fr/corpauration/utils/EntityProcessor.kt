@@ -38,6 +38,7 @@ class EntityProcessor(
             val toBeImported = ArrayList<String>()
             val manyToManyMeta = HashMap<String, HashMap<String, String>>()
             val oneToOneMeta = HashMap<String, HashMap<String, String>>()
+            val elementsCollectionMeta = HashMap<String, HashMap<String, String>>()
             properties.forEach {
                 if (it.annotations.find { it.shortName.asString() == "ManyToMany" } != null) {
                     val m = HashMap<String, String>()
@@ -61,6 +62,22 @@ class EntityProcessor(
                     oneToOneMeta[it.simpleName.asString()] = m
                 } else if (it.annotations.find { it.shortName.asString() == "Lazy" } != null) {
 //                    propertiesMap.put(it.simpleName.asString(), it.type.toString())
+                } else if (it.annotations.find { it.shortName.asString() == "ElementsCollection" } != null) {
+                    val m = HashMap<String, String>()
+                    val annotationArguments = it.annotations.find { it.shortName.asString() == "ElementsCollection" }!!.arguments;
+                    m["type"] = it.type.toString()
+                    m["import"] =
+                        it.type.resolve().declaration.packageName.asString()
+                    for (name in listOf(
+                        "junction_table",
+                        "main_column",
+                        "key_column",
+                        "key_type",
+                        "value_column",
+                        "value_type"
+                    ))
+                        m[name] = annotationArguments.find { it.name!!.asString() == name }?.value.toString()
+                    elementsCollectionMeta[it.simpleName.asString()] = m
                 } else {
                     propertiesMap[it.simpleName.asString()] =
                         it.type.toString() + if (it.type.resolve().isMarkedNullable) "?" else ""
@@ -97,13 +114,21 @@ class EntityProcessor(
                     )
                 }
                 .add { input: ClassBuilder ->
+                    generateExtensionElementsCollection(
+                        input,
+                        classDeclaration.simpleName.asString(),
+                        elementsCollectionMeta
+                    )
+                }
+                .add { input: ClassBuilder ->
                     generateExtension(
                         input,
                         propertiesMap,
                         classDeclaration.simpleName.asString(),
                         toBeImported,
                         manyToManyMeta,
-                        oneToOneMeta
+                        oneToOneMeta,
+                        elementsCollectionMeta
                     )
                 }
                 .build())
@@ -125,7 +150,8 @@ class EntityProcessor(
             originalClass: String,
             toBeImported: ArrayList<String>,
             manyToManyMeta: HashMap<String, HashMap<String, String>>,
-            oneToOneMeta: HashMap<String, HashMap<String, String>>
+            oneToOneMeta: HashMap<String, HashMap<String, String>>,
+            elementsCollectionMeta: HashMap<String, HashMap<String, String>>
         ): ClassBuilder {
             var b = builder
             var str = ""
@@ -154,6 +180,7 @@ class EntityProcessor(
                         var str = ""
                         oneToOneMeta.keys.forEach { str += ", $it" }
                         manyToManyMeta.keys.forEach { str += ", o.load_$it(client)" }
+                        elementsCollectionMeta.keys.forEach { str += ", o.load_$it(client)" }
                         str
                     }
                 }).combinedWith {
@@ -163,6 +190,8 @@ class EntityProcessor(
                         val pad = oneToOneMeta.keys.size - 1
                         oneToOneMeta.keys.forEachIndexed { i, it -> str += "(it[0] as $originalClass).$it = (it[${i + 1}] as $originalClass).$it\n" }
                         manyToManyMeta.keys.forEachIndexed { i, it -> str += "(it[0] as $originalClass).$it = (it[${i + 1 + pad}] as $originalClass).$it\n" }
+                        val pad2 = pad + manyToManyMeta.keys.size - 1
+                        elementsCollectionMeta.keys.forEachIndexed { i, it -> str += "(it[0] as $originalClass).$it = (it[${i + 1 + pad2}] as $originalClass).$it\n" }
                         str
                     }
                 }
@@ -187,6 +216,7 @@ class EntityProcessor(
                         var str = ""
                         oneToOneMeta.keys.forEach { str += ", $it" }
                         manyToManyMeta.keys.forEach { str += ", o.load_$it(client)" }
+                        elementsCollectionMeta.keys.forEach { str += ", o.load_$it(client)" }
                         str
                     }
                 }).combinedWith {
@@ -196,6 +226,8 @@ class EntityProcessor(
                         val pad = oneToOneMeta.keys.size - 1
                         oneToOneMeta.keys.forEachIndexed { i, it -> str += "(it[0] as $originalClass).$it = (it[${i + 1}] as $originalClass).$it\n" }
                         manyToManyMeta.keys.forEachIndexed { i, it -> str += "(it[0] as $originalClass).$it = (it[${i + 1 + pad}] as $originalClass).$it\n" }
+                        val pad2 = pad + manyToManyMeta.keys.size - 1
+                        elementsCollectionMeta.keys.forEachIndexed { i, it -> str += "(it[0] as $originalClass).$it = (it[${i + 1 + pad2}] as $originalClass).$it\n" }
                         str
                     }
                 }
@@ -210,6 +242,7 @@ class EntityProcessor(
                         var str = ""
                         manyToManyMeta.keys.forEach { str += ", this.save_$it(client)" }
                         oneToOneMeta.keys.forEach { str += ", this.save_$it(client)" }
+                        elementsCollectionMeta.keys.forEach { str += ", this.save_$it(client)" }
                         str
                     }
                 }).discardItems()
@@ -222,6 +255,7 @@ class EntityProcessor(
                         var str = ""
                         manyToManyMeta.keys.forEach { str += ", this.save_${it}(client)" }
                         oneToOneMeta.keys.forEach { str += ", this.save_${it}2(client)" }
+                        elementsCollectionMeta.keys.forEach { str += ", this.save_${it}(client)" }
                         str
                     }
                 }).discardItems()
@@ -233,6 +267,7 @@ class EntityProcessor(
                     kotlin.run {
                         var str = ""
                         manyToManyMeta.keys.forEach { str += ", this.delete_$it(client)" }
+                        elementsCollectionMeta.keys.forEach { str += ", this.delete_$it(client)" }
                         str
                     }
                 }).discardItems()
@@ -351,6 +386,64 @@ class EntityProcessor(
                                 "Repository2"
                             )
                         }.TABLE} SET \"$prop\" = $1 WHERE id = $2").execute(Tuple.of(if (this.$prop != null) this.$prop!!.id else null, this.id)))
+                            Uni.combine().all().unis<RowSet<Row>>(queries).discardItems()
+                        }
+                    }
+                    """.trimIndent()
+                    )
+            }
+
+
+            return b
+
+        }
+
+        private fun generateExtensionElementsCollection(
+            builder: ClassBuilder,
+            originalClass: String,
+            elementsCollection: HashMap<String, HashMap<String, String>>
+        ): ClassBuilder {
+            var b = builder
+            elementsCollection.forEach { prop, metadata ->
+                b = b
+                    .addImport("io.vertx.mutiny.pgclient.PgPool")
+                    .addImport("io.smallrye.mutiny.coroutines.awaitSuspending")
+                    .addImport("io.smallrye.mutiny.Multi")
+                    .addImport("io.smallrye.mutiny.Uni")
+                    .addImport("io.vertx.mutiny.sqlclient.RowSet")
+                    .addImport("io.vertx.mutiny.sqlclient.Row")
+                    .addImport("java.util.function.Function")
+                    .addImport("org.reactivestreams.Publisher")
+                    .addImport("io.vertx.mutiny.sqlclient.Tuple")
+                    .addImport("${metadata["import"]!!}.${metadata["type"]}")
+                    .addExtension(
+                        """
+                    fun $originalClass.load_$prop(client: PgPool): Uni<$originalClass> {
+                        val rowSet: Uni<RowSet<Row>> = client.preparedQuery("SELECT ${metadata["key_column"]}, ${metadata["value_column"]} FROM ${metadata["junction_table"]} WHERE ${metadata["main_column"]} = $1").execute(Tuple.of(id))
+                        return rowSet.onItem().transformToMulti(Function<RowSet<Row>, Publisher<*>> { set: RowSet<Row> ->
+                            Multi.createFrom().iterable(set)
+                        }).map { Pair((it as Row).get(${metadata["key_type"]}::class.java, "${metadata["key_column"]}"), it.get(${metadata["value_type"]}::class.java, "${metadata["value_column"]}")) }.collect().asList().onItem().transform { this.$prop = it.toMap(); this }
+                    }
+                """.trimIndent()
+                    )
+                    .addExtension(
+                        """
+                    fun $originalClass.save_$prop(client: PgPool): Uni<Void> {
+                        return client.withTransaction{
+                            val queries = ArrayList<Uni<RowSet<Row>>>()
+                            queries.add(it.preparedQuery("DELETE FROM ${metadata["junction_table"]} WHERE ${metadata["main_column"]} = ${'$'}1").execute(Tuple.of(this.id)))
+                            this.$prop.forEach{ k, v -> queries.add(it.preparedQuery("INSERT INTO ${metadata["junction_table"]} (${metadata["main_column"]}, ${metadata["key_column"]}, ${metadata["value_column"]}) VALUES (${'$'}1, ${'$'}2, ${'$'}3)").execute(Tuple.of(this.id, k, v))) }
+                            Uni.combine().all().unis<RowSet<Row>>(queries).discardItems()
+                        }
+                    }
+                    """.trimIndent()
+                    )
+                    .addExtension(
+                        """
+                    fun $originalClass.delete_$prop(client: PgPool): Uni<Void> {
+                        return client.withTransaction{
+                            val queries = ArrayList<Uni<RowSet<Row>>>()
+                            queries.add(it.preparedQuery("DELETE FROM ${metadata["junction_table"]} WHERE ${metadata["main_column"]} = ${'$'}1").execute(Tuple.of(this.id)))
                             Uni.combine().all().unis<RowSet<Row>>(queries).discardItems()
                         }
                     }

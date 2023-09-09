@@ -71,7 +71,7 @@ class RepositoryGeneratorProcessor(
             val entityProperties = ((entity!! as KSType).declaration as KSClassDeclaration).getAllProperties()
             val dbFields = ArrayList<String>()
             entityProperties.forEach {
-                if (it.annotations.filter { it.shortName.asString() == "ManyToMany" || it.shortName.asString() == "Lazy" }
+                if (it.annotations.filter { it.shortName.asString() == "ManyToMany" || it.shortName.asString() == "Lazy" || it.shortName.asString() == "ElementsCollection" }
                         .count() == 0)
                     dbFields.add(it.simpleName.asString())
             }
