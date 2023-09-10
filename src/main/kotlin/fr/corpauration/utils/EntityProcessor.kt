@@ -57,14 +57,18 @@ class EntityProcessor(
                         if (m["type"]!!.contains("Entity")) m["type"]!!.replace("Entity", "Repository") else {
                             logger.error("@OneToOne is not on an entity but on ${m["type"]}", classDeclaration); ""
                         }
+                    val id =
+                        it.annotations.find { it.shortName.asString() == "OneToOne" }!!.arguments.find { it.name!!.asString() == "id" }?.value
+                    m["id_type"] = (id as KSType).declaration.qualifiedName!!.asString()
                     m["id"] =
-                        it.annotations.find { it.shortName.asString() == "OneToOne" }!!.arguments.find { it.name!!.asString() == "id" }?.value.toString()
+                        id.toString()
                     oneToOneMeta[it.simpleName.asString()] = m
                 } else if (it.annotations.find { it.shortName.asString() == "Lazy" } != null) {
 //                    propertiesMap.put(it.simpleName.asString(), it.type.toString())
                 } else if (it.annotations.find { it.shortName.asString() == "ElementsCollection" } != null) {
                     val m = HashMap<String, String>()
-                    val annotationArguments = it.annotations.find { it.shortName.asString() == "ElementsCollection" }!!.arguments;
+                    val annotationArguments =
+                        it.annotations.find { it.shortName.asString() == "ElementsCollection" }!!.arguments;
                     m["type"] = it.type.toString()
                     m["import"] =
                         it.type.resolve().declaration.packageName.asString()
@@ -355,6 +359,7 @@ class EntityProcessor(
                     .addImport("${metadata["import"]!!}.${metadata["repository"]}")
                     .addImport("${metadata["import"]!!}.${metadata["repository"]}2")
                     .addImport("${metadata["import"]!!}.from")
+                    .addImport(metadata["id_type"]!!)
                     .addExtension(
                         """
                     fun $originalClass.save_$prop(client: PgPool): Uni<Void> {
