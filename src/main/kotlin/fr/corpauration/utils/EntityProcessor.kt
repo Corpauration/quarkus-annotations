@@ -190,8 +190,6 @@ class EntityProcessor(
                         val pad = oneToOneMeta.keys.size - 1
                         oneToOneMeta.keys.forEachIndexed { i, it -> str += "(it[0] as $originalClass).$it = (it[${i + 1}] as $originalClass).$it\n" }
                         manyToManyMeta.keys.forEachIndexed { i, it -> str += "(it[0] as $originalClass).$it = (it[${i + 1 + pad}] as $originalClass).$it\n" }
-                        val pad2 = pad + manyToManyMeta.keys.size - 1
-                        elementsCollectionMeta.keys.forEachIndexed { i, it -> str += "(it[0] as $originalClass).$it = (it[${i + 1 + pad2}] as $originalClass).$it\n" }
                         str
                     }
                 }
@@ -226,8 +224,6 @@ class EntityProcessor(
                         val pad = oneToOneMeta.keys.size - 1
                         oneToOneMeta.keys.forEachIndexed { i, it -> str += "(it[0] as $originalClass).$it = (it[${i + 1}] as $originalClass).$it\n" }
                         manyToManyMeta.keys.forEachIndexed { i, it -> str += "(it[0] as $originalClass).$it = (it[${i + 1 + pad}] as $originalClass).$it\n" }
-                        val pad2 = pad + manyToManyMeta.keys.size - 1
-                        elementsCollectionMeta.keys.forEachIndexed { i, it -> str += "(it[0] as $originalClass).$it = (it[${i + 1 + pad2}] as $originalClass).$it\n" }
                         str
                     }
                 }
